@@ -1,0 +1,52 @@
+name: iOS tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/hitofude-swiftui-ios]
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select an installed iPhone Simulator
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/simulators.json"
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'simulators.json')) as file:
+              data = json.load(file)
+          devices = [device for runtime, devices in data['devices'].items()
+                     if '.iOS-' in runtime for device in devices
+                     if device['name'].startswith('iPhone') and device.get('isAvailable')]
+          if not devices:
+              raise SystemExit('No installed iPhone Simulator found')
+          print('HITOFUDE_SIMULATOR_ID=' + devices[0]['udid'])
+          PY
+      - name: Build and run XCTest
+        run: |
+          xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
+            -destination "platform=iOS Simulator,id=$HITOFUDE_SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/HitofudeTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO test
+      - name: Save XCTest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hitofude-XCTest
+          path: ${{ runner.temp }}/HitofudeTests.xcresult
+          if-no-files-found: ignore

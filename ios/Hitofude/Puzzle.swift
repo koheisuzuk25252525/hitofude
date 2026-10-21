@@ -10,7 +10,7 @@ struct Cell: Codable, Hashable, Sendable {
     }
 }
 
-struct Puzzle: Sendable {
+struct Puzzle: Codable, Sendable {
     let size: Int
     let path: [Cell]
     let clues: [Cell: Int]
@@ -30,7 +30,7 @@ struct Puzzle: Sendable {
     )
 }
 
-enum GameMode: String, CaseIterable, Identifiable, Sendable {
+enum GameMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case tutorial, daily, easy, medium, hard, oni
     var id: Self { self }
     var title: String {
@@ -100,5 +100,39 @@ enum PuzzleGenerator {
                       clues: Dictionary(uniqueKeysWithValues: payload.clues.map {
             (Cell(row: $0.row, column: $0.column), $0.value)
         }))
+    }
+}
+
+/// Friendly, self-reported time challenges. Shared HTTPS links also work with the Web format.
+struct Challenge: Codable, Equatable, Sendable {
+    let mode: GameMode
+    let seed: UInt32
+    let seconds: Int
+
+    private static let codes: [String: GameMode] = ["e": .easy, "m": .medium, "h": .hard, "d": .daily, "o": .oni]
+    var isValid: Bool { mode != .tutorial && (0...604_800).contains(seconds) }
+    var url: URL {
+        let code = Self.codes.first(where: { $0.value == mode })?.key ?? "m"
+        return URL(string: "https://koheisuzuk25252525.github.io/hitofude/#c-\(code)-\(seed)-\(seconds)")!
+    }
+
+    static func parse(_ text: String) -> Challenge? {
+        guard text.utf8.count <= 4096 else { return nil }
+        for token in text.split(whereSeparator: { $0.isWhitespace }) {
+            guard let components = URLComponents(string: String(token)),
+                  components.scheme == "https", components.host == "koheisuzuk25252525.github.io",
+                  components.path == "/hitofude/", components.user == nil, components.password == nil,
+                  components.port == nil, components.query == nil,
+                  let fragment = components.fragment else { continue }
+            let parts = fragment.split(separator: "-", omittingEmptySubsequences: false)
+            guard parts.count == 4, parts[0] == "c", let mode = codes[String(parts[1])],
+                  !parts[2].isEmpty, !parts[3].isEmpty,
+                  parts[2].allSatisfy({ $0 >= "0" && $0 <= "9" }),
+                  parts[3].allSatisfy({ $0 >= "0" && $0 <= "9" }),
+                  let seed = UInt32(parts[2]), let seconds = Int(parts[3]) else { continue }
+            let challenge = Challenge(mode: mode, seed: seed, seconds: seconds)
+            if challenge.isValid { return challenge }
+        }
+        return nil
     }
 }

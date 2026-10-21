@@ -19,16 +19,37 @@ private enum Palette {
 
 struct GameView: View {
     @StateObject private var game = GameModel()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showsHelp = false
+    @State private var showsChallenge = false
+    @State private var challengeInput = ""
+    @State private var challengeError: String?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 header
                 modes
+                Button { showsChallenge = true } label: {
+                    Label("リンクで対戦", systemImage: "person.2")
+                }.disabled(game.isLoading)
+                if let rival = game.rival {
+                    Text("対戦中：相手のタイム \(GameModel.timeString(TimeInterval(rival.seconds)))")
+                        .font(.callout.bold()).foregroundStyle(Palette.accent)
+                    Text("ヒントは3回。中断中はタイマーが止まります。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let puzzle = game.puzzle {
                     BoardView(game: game, puzzle: puzzle)
                         .aspectRatio(1, contentMode: .fit)
+                        .overlay {
+                            if game.isPaused {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 18).fill(.regularMaterial)
+                                    Text("一時停止中").font(.title2.bold())
+                                }
+                            }
+                        }
                     if game.isFinished { completion }
                     controls
                     if let message = game.message {
@@ -48,7 +69,7 @@ struct GameView: View {
                 } else {
                     VStack(spacing: 16) {
                         Text(game.message ?? "問題を作れませんでした")
-                        Button("もう一度") { Task { await game.load(game.mode) } }
+                        Button("もう一度") { Task { await game.load(game.mode, seed: game.seed, rival: game.rival) } }
                     }.frame(maxWidth: .infinity, minHeight: 300)
                 }
                 Text("1から指でなぞって、すべてのマスを1回ずつ通り、いちばん大きい数字で終わろう。数字は「何番目に通るか」。")
@@ -62,6 +83,10 @@ struct GameView: View {
         .foregroundStyle(Palette.foreground)
         .tint(Palette.accent)
         .task { await game.startInitialGame() }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            game.setActive(phase == .active)
+        }
+        .sheet(isPresented: $showsChallenge) { challengeSheet }
         .sheet(isPresented: $showsHelp) {
             NavigationStack {
                 VStack(alignment: .leading, spacing: 24) {
@@ -80,6 +105,43 @@ struct GameView: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsHelp = false } } }
             }.presentationDetents([.medium, .large])
         }
+    }
+
+    private var challengeSheet: some View {
+        NavigationStack {
+            Form {
+                Section("相手の挑戦リンク") {
+                    TextField("https://…/hitofude/#c-…", text: $challengeInput, axis: .vertical)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .onChange(of: challengeInput) { _, _ in challengeError = nil }
+                    PasteButton(payloadType: String.self) { texts in
+                        challengeInput = texts.first ?? ""
+                        challengeError = nil
+                    }
+                }
+                Section {
+                    if let challenge = Challenge.parse(challengeInput) {
+                        Text("\(challenge.mode.title)・相手 \(GameModel.timeString(TimeInterval(challenge.seconds)))")
+                    }
+                    Button("この問題で対戦する") {
+                        guard let challenge = Challenge.parse(challengeInput) else {
+                            challengeError = "ヒトフデの挑戦リンクを貼り付けてね"
+                            return
+                        }
+                        showsChallenge = false
+                        Task { await game.load(challenge.mode, seed: challenge.seed, rival: challenge) }
+                    }
+                    if let challengeError { Text(challengeError).foregroundStyle(.red) }
+                } footer: {
+                    Text("今の問題は対戦問題に切り替わります。リンクをタップするとWeb版が開くので、アプリではここに貼り付けてください。タイムは自己申告の気軽な対戦です。")
+                }
+            }
+            .navigationTitle("リンクで対戦")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("閉じる") { showsChallenge = false } }
+            }
+        }.presentationDetents([.medium, .large])
     }
 
     private var header: some View {
@@ -102,6 +164,9 @@ struct GameView: View {
                         .monospacedDigit().foregroundStyle(.secondary)
                         .accessibilityLabel("経過時間 \(GameModel.timeString(game.elapsed(at: context.date)))")
                 }
+            }
+            if game.mode == .daily, game.seed != GameMode.dailySeed(), game.puzzle != nil {
+                Text("保存した日の問題（\(String(game.seed))）").font(.caption).foregroundStyle(.secondary)
             }
             if let best = game.best {
                 Text("ベスト \(GameModel.timeString(best))").font(.caption).foregroundStyle(.secondary)
@@ -148,6 +213,19 @@ struct GameView: View {
         VStack(spacing: 14) {
             Text("クリア！").font(.largeTitle.bold()).foregroundStyle(Palette.accent)
             Text("\(game.mode.title)  \(GameModel.timeString(game.elapsed(at: Date())))")
+            if let verdict = game.verdict {
+                Text(verdict).font(.headline)
+                Button("同じ問題で再挑戦") {
+                    Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
+                }.buttonStyle(.bordered)
+            }
+            if let challenge = game.challenge {
+                ShareLink(item: challenge.url,
+                          subject: Text("ヒトフデで対戦しよう"),
+                          message: Text("\(game.mode.title)・\(GameModel.timeString(TimeInterval(challenge.seconds)))・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。")) {
+                    Label("挑戦リンクを送る", systemImage: "person.2.wave.2")
+                }.buttonStyle(.borderedProminent)
+            }
             HStack {
                 ShareLink(item: game.shareText) { Label("結果を共有", systemImage: "square.and.arrow.up") }
                 Button(game.mode == .tutorial ? "きょうの1問へ" : "つぎの問題") {
@@ -223,6 +301,7 @@ private struct BoardView: View {
                     previousPoint = to
                 }
                 .onEnded { _ in previousPoint = nil })
+            .onChange(of: game.isPaused) { _, _ in previousPoint = nil }
         }
     }
 
