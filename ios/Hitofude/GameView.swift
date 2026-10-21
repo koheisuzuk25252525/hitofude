@@ -45,13 +45,9 @@ struct GameView: View {
         ScrollView {
             VStack(spacing: 20) {
                 header
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    progressCard(at: context.date)
+                if let greeting = game.returnGreeting {
+                    ReturnGreetingView(greeting: greeting)
                 }
-                modes
-                Button { showsChallenge = true } label: {
-                    Label("リンクで対戦", systemImage: "person.2")
-                }.disabled(game.isLoading)
                 if let rival = game.rival {
                     Text("対戦中：相手のタイム \(GameModel.timeString(TimeInterval(rival.seconds)))")
                         .font(.callout.bold()).foregroundStyle(palette.accent)
@@ -90,6 +86,20 @@ struct GameView: View {
                         Text(game.message ?? "問題を作れませんでした")
                         Button("もう一度") { Task { await game.load(game.mode, seed: game.seed, rival: game.rival) } }
                     }.frame(maxWidth: .infinity, minHeight: 300)
+                }
+                Button { Task { await game.load(.easy) } } label: {
+                    Label("新しいさくっと1問", systemImage: "arrow.right")
+                }.buttonStyle(.borderedProminent).disabled(game.isLoading)
+                DisclosureGroup("ほかの遊び方・記録") {
+                    VStack(spacing: 16) {
+                        modes
+                        Button { showsChallenge = true } label: {
+                            Label("リンクで対戦", systemImage: "person.2")
+                        }.disabled(game.isLoading)
+                        TimelineView(.periodic(from: .now, by: 60)) { context in
+                            progressCard(at: context.date)
+                        }
+                    }.padding(.top, 12)
                 }
                 Text("1から指でなぞって、すべてのマスを1回ずつ通り、いちばん大きい数字で終わろう。数字は「何番目に通るか」。")
                     .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -201,7 +211,7 @@ struct GameView: View {
                 }.accessibilityLabel("あそびかた")
             }
             HStack {
-                Text(game.mode.title).font(.headline)
+                Text(game.mode == .easy ? "さくっと1問" : game.mode.title).font(.headline)
                 Spacer()
                 Text("\(game.route.count)/\((game.puzzle?.size ?? game.mode.size) * (game.puzzle?.size ?? game.mode.size))")
                     .monospacedDigit().accessibilityLabel("\(game.route.count)マス通過")
@@ -210,6 +220,10 @@ struct GameView: View {
                         .monospacedDigit().foregroundStyle(.secondary)
                         .accessibilityLabel("経過時間 \(GameModel.timeString(game.elapsed(at: context.date)))")
                 }
+            }
+            if game.mode == .easy {
+                Text("1から指でなぞろう。数字は「何番目に通るか」。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if game.mode == .daily, game.seed != GameMode.dailySeed(), game.puzzle != nil {
                 Text("保存した日の問題（\(String(game.seed))）").font(.caption).foregroundStyle(.secondary)
@@ -281,14 +295,41 @@ struct GameView: View {
             }
             HStack {
                 ShareLink(item: game.shareText) { Label("結果を共有", systemImage: "square.and.arrow.up") }
-                Button(game.mode == .tutorial ? "きょうの1問へ" : game.mode == .daily ? "別の問題に挑戦" : "つぎの問題") {
-                    Task { await game.load(game.mode == .tutorial ? .daily : game.mode == .daily ? .medium : game.mode) }
+                Button("もう1問だけ") {
+                    Task { await game.load(.easy) }
                 }
             }.buttonStyle(.bordered)
         }
         .padding(20).frame(maxWidth: .infinity)
         .background(palette.soft, in: RoundedRectangle(cornerRadius: 20))
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct ReturnGreetingView: View {
+    let greeting: ReturnGreeting
+    @Environment(\.hitofudePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: greeting.symbol)
+                .font(.title2).foregroundStyle(palette.accent)
+                .rotationEffect(.degrees(appeared ? 0 : -12))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(greeting.text).font(.callout.bold())
+                Text("1問だけでも、ごゆっくり。").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(palette.soft, in: RoundedRectangle(cornerRadius: 14))
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.6)) { appeared = true }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -143,8 +143,9 @@ final class HitofudeTests: XCTestCase {
         for cell in Puzzle.tutorial.path.dropFirst(5) { restored.step(cell) }
         let completed = GameModel(defaults: defaults)
         await completed.startInitialGame()
-        XCTAssertTrue(completed.isFinished)
-        XCTAssertEqual(completed.route.count, 16)
+        XCTAssertFalse(completed.isFinished)
+        XCTAssertEqual(completed.mode, .easy)
+        XCTAssertTrue(completed.route.isEmpty)
     }
 
     @MainActor
@@ -155,7 +156,7 @@ final class HitofudeTests: XCTestCase {
         defaults.set(Data("invalid JSON".utf8), forKey: "hitofude.session.v1")
         let game = GameModel(defaults: defaults)
         await game.startInitialGame()
-        XCTAssertEqual(game.mode, .tutorial)
+        XCTAssertEqual(game.mode, .easy)
         let valid = try XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))
         for change in ["version", "route", "elapsed", "hintsLeft"] {
             var object = try XCTUnwrap(JSONSerialization.jsonObject(with: valid) as? [String: Any])
@@ -168,7 +169,7 @@ final class HitofudeTests: XCTestCase {
             defaults.set(try JSONSerialization.data(withJSONObject: object), forKey: "hitofude.session.v1")
             let fallback = GameModel(defaults: defaults)
             await fallback.startInitialGame()
-            XCTAssertEqual(fallback.mode, .tutorial)
+            XCTAssertEqual(fallback.mode, .easy)
             XCTAssertTrue(fallback.route.isEmpty)
             XCTAssertEqual(fallback.hintsLeft, 3)
         }
@@ -214,9 +215,10 @@ final class HitofudeTests: XCTestCase {
         XCTAssertEqual(restored.challenge?.seconds, 10)
         let finished = GameModel(defaults: defaults, now: { date })
         await finished.startInitialGame()
-        XCTAssertEqual(finished.verdict, "引き分け！")
+        XCTAssertNil(finished.verdict)
+        XCTAssertNil(finished.rival)
         date = date.addingTimeInterval(100)
-        XCTAssertEqual(finished.elapsed(at: date), 9.6, accuracy: 0.001)
+        XCTAssertEqual(finished.elapsed(at: date), 0, accuracy: 0.001)
         for (seconds, expected) in [(9.0, "あなたの勝ち！"), (11.0, "相手の勝ち。もう一度挑戦しよう！")] {
             await finished.load(challenge.mode, seed: challenge.seed, rival: challenge)
             let fresh = try XCTUnwrap(finished.puzzle)
@@ -304,6 +306,7 @@ final class HitofudeTests: XCTestCase {
         await restored.startInitialGame()
         XCTAssertTrue(restored.isNightTheme)
         XCTAssertEqual(restored.progress.count(in: date), 10)
+        await restored.load(.easy, seed: 10)
         restored.reset()
         let puzzle = try XCTUnwrap(restored.puzzle)
         for cell in puzzle.path { restored.step(cell) }
@@ -312,6 +315,69 @@ final class HitofudeTests: XCTestCase {
         XCTAssertFalse(restored.isNightTheme)
         let standard = GameModel(defaults: defaults)
         XCTAssertFalse(standard.isNightTheme)
+    }
+
+
+    @MainActor
+    func testQuickStartPreservesUnfinishedGamesButSkipsCompletedScreen() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.startInitialGame()
+        XCTAssertEqual(game.mode, .easy)
+        XCTAssertEqual(game.puzzle?.size, 5)
+        await game.load(.hard, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        game.step(puzzle.path[0])
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.mode, .hard)
+        XCTAssertEqual(restored.seed, 1000)
+        XCTAssertEqual(restored.route, [puzzle.path[0]])
+        for cell in puzzle.path.dropFirst() { restored.step(cell) }
+        let reopened = GameModel(defaults: defaults)
+        await reopened.startInitialGame()
+        XCTAssertEqual(reopened.mode, .easy)
+        XCTAssertFalse(reopened.isFinished)
+        XCTAssertNil(reopened.startedAt)
+    }
+
+    @MainActor
+    func testReturnGreetingThresholdAndForegroundVisit() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var date = Date(timeIntervalSince1970: 1_000_000)
+        let game = GameModel(defaults: defaults, now: { date })
+        // The initial inactive callback must not overwrite the previous visit.
+        game.setActive(false)
+        await game.startInitialGame()
+        game.setActive(true)
+        XCTAssertNil(game.returnGreeting)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        game.step(puzzle.path[0])
+        game.setActive(false)
+        date = date.addingTimeInterval(72 * 3600 - 1)
+        game.setActive(true)
+        XCTAssertNil(game.returnGreeting)
+        game.setActive(false)
+        date = date.addingTimeInterval(72 * 3600)
+        let returning = GameModel(defaults: defaults, now: { date })
+        returning.setActive(false)
+        await returning.startInitialGame()
+        XCTAssertEqual(returning.returnGreeting, .star)
+        XCTAssertEqual(returning.route, [puzzle.path[0]])
+        returning.setActive(true)
+        XCTAssertEqual(defaults.integer(forKey: "hitofude.returnCount"), 1)
+        returning.setActive(false)
+        date = date.addingTimeInterval(72 * 3600)
+        returning.setActive(false) // Background -> inactive -> active must keep the original departure.
+        returning.setActive(true)
+        XCTAssertEqual(returning.returnGreeting, .leaf)
+        XCTAssertEqual(defaults.integer(forKey: "hitofude.returnCount"), 2)
+        XCTAssertEqual(returning.route, [puzzle.path[0]])
+        XCTAssertEqual(returning.elapsed(at: date), 0, accuracy: 0.001)
     }
 
 }

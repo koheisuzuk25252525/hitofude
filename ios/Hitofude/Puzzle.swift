@@ -188,3 +188,23 @@ struct PlayProgress: Codable {
         return isNew
     }
 }
+
+
+/// A small visual greeting after time away; never blocks play or expires a reward.
+enum ReturnGreeting: String, CaseIterable {
+    case star, leaf, moon
+    var symbol: String {
+        switch self {
+        case .star: return "sparkles"
+        case .leaf: return "leaf.fill"
+        case .moon: return "moon.stars.fill"
+        }
+    }
+    var text: String {
+        switch self {
+        case .star: return "おかえり。小さな星がお出迎え。"
+        case .leaf: return "おかえり。ひと息つける場所、空いています。"
+        case .moon: return "おかえり。少しだけ、静かな時間を。"
+        }
+    }
+}

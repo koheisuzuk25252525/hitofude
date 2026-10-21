@@ -21,6 +21,7 @@ final class GameModel: ObservableObject {
     @Published private(set) var progress: PlayProgress
     @Published private(set) var isNightTheme: Bool
     @Published private(set) var completionMessage: String?
+    @Published private(set) var returnGreeting: ReturnGreeting?
     private var accumulated: TimeInterval = 0
     private var segmentStart: Date?
     private let now: () -> Date
@@ -47,8 +48,9 @@ final class GameModel: ObservableObject {
 
     func startInitialGame() async {
         guard puzzle == nil, !isLoading else { return }
-        if restoreSession() { return }
-        await load(defaults.bool(forKey: "hitofude.tutorialCompleted") ? .daily : .tutorial)
+        registerVisit()
+        if restoreSession(), !isFinished { return }
+        await load(.easy)
     }
 
     func load(_ selected: GameMode, seed explicitSeed: UInt32? = nil, rival opponent: Challenge? = nil) async {
@@ -144,15 +146,29 @@ final class GameModel: ObservableObject {
     }
 
     func setActive(_ active: Bool) {
+        let wasActive = !isPaused
         if !active {
             accumulated = elapsed(at: now())
             segmentStart = nil
             isPaused = true
         } else {
+            registerVisit()
             isPaused = false
             if startedAt != nil, !isFinished, segmentStart == nil { segmentStart = now() }
         }
+        if !active, wasActive, puzzle != nil { defaults.set(now(), forKey: "hitofude.lastVisit") }
         saveSession()
+    }
+
+    private func registerVisit() {
+        let date = now()
+        if let previous = defaults.object(forKey: "hitofude.lastVisit") as? Date,
+           date.timeIntervalSince(previous) >= 72 * 3600 {
+            let count = defaults.integer(forKey: "hitofude.returnCount")
+            returnGreeting = ReturnGreeting.allCases[max(0, count) % ReturnGreeting.allCases.count]
+            defaults.set((max(0, count) % ReturnGreeting.allCases.count) + 1, forKey: "hitofude.returnCount")
+        }
+        defaults.set(date, forKey: "hitofude.lastVisit")
     }
 
     private struct Session: Codable {
