@@ -13,3 +13,9 @@
 ```
 node tests/generator.test.mjs
 ```
+
+## iOSアプリ（SwiftUI）
+
+MacのXcode 16以降で `ios/Hitofude.xcodeproj` を開き、HitofudeのSchemeとiPhone Simulatorを選んで実行できます（iOS 17以降）。起動・実機へのインストール・テスト・実装範囲は [iOS版の手順](ios/README.md) を参照してください。
+
+Web版とiOS同梱の問題生成器の一致は `node tests/native-generator.test.mjs` で検証できます。
