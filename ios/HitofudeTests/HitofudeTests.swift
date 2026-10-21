@@ -227,4 +227,91 @@ final class HitofudeTests: XCTestCase {
         }
     }
 
+
+    func testMonthlyGoalDeduplicatesBoardsAndKeepsRewardNextMonth() throws {
+        let calendar = PlayProgress.calendar(timeZone: TimeZone(secondsFromGMT: 9 * 3600)!)
+        let october = calendar.date(from: DateComponents(year: 2026, month: 10, day: 21))!
+        let november = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1))!
+        var progress = PlayProgress()
+        XCTAssertFalse(progress.record(mode: .tutorial, seed: 1, at: october, calendar: calendar))
+        for seed in UInt32(1)...UInt32(9) {
+            XCTAssertTrue(progress.record(mode: .easy, seed: seed, at: october, calendar: calendar))
+        }
+        XCTAssertEqual(progress.count(in: october, calendar: calendar), 9)
+        XCTAssertFalse(progress.nightUnlocked)
+        XCTAssertFalse(progress.record(mode: .easy, seed: 1, at: october, calendar: calendar))
+        XCTAssertEqual(progress.count(in: october, calendar: calendar), 9)
+        XCTAssertTrue(progress.record(mode: .easy, seed: 10, at: october, calendar: calendar))
+        XCTAssertTrue(progress.nightUnlocked)
+        XCTAssertEqual(progress.count(on: october, calendar: calendar), 10)
+        XCTAssertEqual(progress.count(in: november, calendar: calendar), 0)
+        XCTAssertFalse(progress.record(mode: .easy, seed: 10, at: november, calendar: calendar))
+        XCTAssertTrue(progress.nightUnlocked)
+        XCTAssertTrue(progress.record(mode: .easy, seed: 11, at: november, calendar: calendar))
+        XCTAssertEqual(progress.count(in: november, calendar: calendar), 1)
+        let restored = try JSONDecoder().decode(PlayProgress.self, from: JSONEncoder().encode(progress))
+        XCTAssertTrue(restored.nightUnlocked)
+        XCTAssertEqual(restored.count(in: october, calendar: calendar), 10)
+        XCTAssertEqual(restored.count(in: november, calendar: calendar), 1)
+    }
+
+    func testDailyCalendarUsesLocalDateAndDeduplicatesMediumBoard() {
+        let calendar = PlayProgress.calendar(timeZone: TimeZone(secondsFromGMT: 9 * 3600)!)
+        let today = calendar.date(from: DateComponents(year: 2026, month: 10, day: 21))!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        XCTAssertEqual(PlayProgress.dayKey(today, calendar: calendar), "20261021")
+        var progress = PlayProgress()
+        progress.record(mode: .medium, seed: 20261021, at: today, calendar: calendar)
+        XCTAssertFalse(progress.dailyCompleted(on: today, calendar: calendar))
+        XCTAssertFalse(progress.record(mode: .daily, seed: 20261021, at: today, calendar: calendar))
+        XCTAssertTrue(progress.dailyCompleted(on: today, calendar: calendar))
+        XCTAssertEqual(progress.count(in: today, calendar: calendar), 1)
+        progress.record(mode: .daily, seed: 20261021, at: tomorrow, calendar: calendar)
+        XCTAssertFalse(progress.dailyCompleted(on: tomorrow, calendar: calendar))
+        progress.record(mode: .daily, seed: 20261022, at: tomorrow, calendar: calendar)
+        XCTAssertTrue(progress.dailyCompleted(on: tomorrow, calendar: calendar))
+        XCTAssertEqual(progress.count(on: tomorrow, calendar: calendar), 1)
+        // Both sides of local midnight belong to different month buckets.
+        let endOfMonth = calendar.date(from: DateComponents(year: 2026, month: 10, day: 31, hour: 23, minute: 59))!
+        let nextMonth = endOfMonth.addingTimeInterval(120)
+        progress.record(mode: .hard, seed: 7, at: endOfMonth, calendar: calendar)
+        progress.record(mode: .hard, seed: 8, at: nextMonth, calendar: calendar)
+        XCTAssertEqual(progress.count(in: nextMonth, calendar: calendar), 1)
+    }
+
+    @MainActor
+    func testCompletionProgressPersistsAndThemeRequiresUnlock() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let date = Date()
+        let game = GameModel(defaults: defaults, now: { date })
+        game.selectNightTheme(true)
+        XCTAssertFalse(game.isNightTheme)
+        await game.load(.tutorial)
+        for cell in Puzzle.tutorial.path { game.step(cell) }
+        XCTAssertEqual(game.progress.count(in: date), 0)
+        for seed in UInt32(1)...UInt32(10) {
+            await game.load(.easy, seed: seed)
+            let puzzle = try XCTUnwrap(game.puzzle)
+            for cell in puzzle.path { game.step(cell) }
+        }
+        XCTAssertEqual(game.progress.count(in: date), 10)
+        XCTAssertTrue(game.progress.nightUnlocked)
+        game.selectNightTheme(true)
+        XCTAssertTrue(game.isNightTheme)
+        let restored = GameModel(defaults: defaults, now: { date })
+        await restored.startInitialGame()
+        XCTAssertTrue(restored.isNightTheme)
+        XCTAssertEqual(restored.progress.count(in: date), 10)
+        restored.reset()
+        let puzzle = try XCTUnwrap(restored.puzzle)
+        for cell in puzzle.path { restored.step(cell) }
+        XCTAssertEqual(restored.progress.count(in: date), 10)
+        restored.selectNightTheme(false)
+        XCTAssertFalse(restored.isNightTheme)
+        let standard = GameModel(defaults: defaults)
+        XCTAssertFalse(standard.isNightTheme)
+    }
+
 }

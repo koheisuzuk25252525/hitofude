@@ -136,3 +136,55 @@ struct Challenge: Codable, Equatable, Sendable {
         return nil
     }
 }
+
+struct PlayProgress: Codable {
+    struct Completion: Codable {
+        let day: String
+        var dailyDay: String?
+    }
+    private(set) var completions: [String: Completion] = [:]
+    private(set) var nightUnlocked = false
+    static let monthlyGoal = 10
+
+    static func calendar(timeZone: TimeZone = .current) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
+    static func dayKey(_ date: Date, calendar: Calendar = PlayProgress.calendar()) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d%02d%02d", parts.year!, parts.month!, parts.day!)
+    }
+
+    func count(in date: Date, calendar: Calendar = PlayProgress.calendar()) -> Int {
+        let month = String(Self.dayKey(date, calendar: calendar).prefix(6))
+        return completions.values.filter { $0.day.hasPrefix(month) }.count
+    }
+
+    func count(on date: Date, calendar: Calendar = PlayProgress.calendar()) -> Int {
+        let key = Self.dayKey(date, calendar: calendar)
+        return completions.values.filter { $0.day == key }.count
+    }
+
+    func dailyCompleted(on date: Date, calendar: Calendar = PlayProgress.calendar()) -> Bool {
+        let key = Self.dayKey(date, calendar: calendar)
+        return completions.values.contains { $0.dailyDay == key }
+    }
+
+    @discardableResult
+    mutating func record(mode: GameMode, seed: UInt32, at date: Date,
+                         calendar: Calendar = PlayProgress.calendar()) -> Bool {
+        guard mode != .tutorial else { return false }
+        // Daily and medium can be the exact same board; count that board only once.
+        let id = "\(mode.size)-\(mode.difficulty)-\(seed)"
+        let key = Self.dayKey(date, calendar: calendar)
+        let isNew = completions[id] == nil
+        let isDaily = mode == .daily && String(seed) == key
+        if isNew { completions[id] = Completion(day: key, dailyDay: isDaily ? key : nil) }
+        else if isDaily { completions[id]?.dailyDay = key }
+        if count(in: date, calendar: calendar) >= Self.monthlyGoal { nightUnlocked = true }
+        return isNew
+    }
+}

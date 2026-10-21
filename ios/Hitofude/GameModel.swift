@@ -18,6 +18,9 @@ final class GameModel: ObservableObject {
     @Published private(set) var best: TimeInterval?
     @Published private(set) var isPaused = false
     @Published private(set) var rival: Challenge?
+    @Published private(set) var progress: PlayProgress
+    @Published private(set) var isNightTheme: Bool
+    @Published private(set) var completionMessage: String?
     private var accumulated: TimeInterval = 0
     private var segmentStart: Date?
     private let now: () -> Date
@@ -27,6 +30,19 @@ final class GameModel: ObservableObject {
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
         self.now = now
+        let savedProgress: PlayProgress
+        if let data = defaults.data(forKey: "hitofude.progress.v1"),
+           let saved = try? JSONDecoder().decode(PlayProgress.self, from: data) {
+            savedProgress = saved
+        } else { savedProgress = PlayProgress() }
+        progress = savedProgress
+        isNightTheme = savedProgress.nightUnlocked && defaults.bool(forKey: "hitofude.nightTheme")
+    }
+
+    func selectNightTheme(_ selected: Bool) {
+        guard !selected || progress.nightUnlocked else { return }
+        isNightTheme = selected
+        defaults.set(selected, forKey: "hitofude.nightTheme")
     }
 
     func startInitialGame() async {
@@ -65,6 +81,7 @@ final class GameModel: ObservableObject {
         route = []; isFinished = false; hintsLeft = 3; highlighted = nil
         message = nil; startedAt = nil; finishedAt = nil
         accumulated = 0; segmentStart = nil
+        completionMessage = nil
         saveSession()
     }
 
@@ -232,6 +249,23 @@ final class GameModel: ObservableObject {
             defaults.set(seconds, forKey: "hitofude.best.\(mode.rawValue)")
         }
         if mode == .daily { defaults.set(seconds, forKey: "hitofude.daily.\(seed)") }
+        let wasUnlocked = progress.nightUnlocked
+        let isNew = progress.record(mode: mode, seed: seed, at: now())
+        if let data = try? JSONEncoder().encode(progress) {
+            defaults.set(data, forKey: "hitofude.progress.v1")
+        }
+        if !wasUnlocked && progress.nightUnlocked {
+            completionMessage = "今月10問達成！「夜空」の色が使えるようになったよ"
+        } else if mode == .tutorial {
+            completionMessage = "れんしゅうクリア！次はきょうの1問に挑戦しよう"
+        } else if isNew {
+            let count = progress.count(in: now())
+            completionMessage = count < PlayProgress.monthlyGoal
+                ? "今月\(count)／10問。あと\(10 - count)問で目標達成！"
+                : "今月\(count)問クリア！自分のペースで続けよう"
+        } else {
+            completionMessage = "もう一度クリア！この問題は達成記録に入っているよ"
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 }

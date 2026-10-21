@@ -1,26 +1,42 @@
 import SwiftUI
 import UIKit
 
-private enum Palette {
-    static let background = adaptive(0xF8F3E8, 0x1B1917)
-    static let foreground = adaptive(0x1F1D22, 0xF2ECE0)
-    static let cell = adaptive(0xFFFDF8, 0x262320)
-    static let soft = adaptive(0xEFE7D6, 0x2B2824)
-    static let accent = adaptive(0xE8553A, 0xFF7A5C)
+private struct Palette {
+    let isNight: Bool
+    var background: Color { isNight ? Self.color(0x101B32) : Self.adaptive(0xF8F3E8, 0x1B1917) }
+    var foreground: Color { isNight ? Self.color(0xF2F5FF) : Self.adaptive(0x1F1D22, 0xF2ECE0) }
+    var cell: Color { isNight ? Self.color(0x182743) : Self.adaptive(0xFFFDF8, 0x262320) }
+    var soft: Color { isNight ? Self.color(0x263958) : Self.adaptive(0xEFE7D6, 0x2B2824) }
+    var accent: Color { isNight ? Self.color(0xF6CC78) : Self.adaptive(0xE8553A, 0xFF7A5C) }
+    private static func color(_ hex: UInt32) -> Color { Color(uiColor: uiColor(hex)) }
+    private static func uiColor(_ hex: UInt32) -> UIColor {
+        UIColor(red: CGFloat((hex >> 16) & 255) / 255,
+                green: CGFloat((hex >> 8) & 255) / 255,
+                blue: CGFloat(hex & 255) / 255, alpha: 1)
+    }
     private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in
-            let hex = traits.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: CGFloat((hex >> 16) & 255) / 255,
-                           green: CGFloat((hex >> 8) & 255) / 255,
-                           blue: CGFloat(hex & 255) / 255, alpha: 1)
+            uiColor(traits.userInterfaceStyle == .dark ? dark : light)
         })
+    }
+}
+
+private struct PaletteKey: EnvironmentKey {
+    static let defaultValue = Palette(isNight: false)
+}
+private extension EnvironmentValues {
+    var hitofudePalette: Palette {
+        get { self[PaletteKey.self] }
+        set { self[PaletteKey.self] = newValue }
     }
 }
 
 struct GameView: View {
     @StateObject private var game = GameModel()
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showsProgress = false
     @State private var showsHelp = false
+    private var palette: Palette { Palette(isNight: game.isNightTheme) }
     @State private var showsChallenge = false
     @State private var challengeInput = ""
     @State private var challengeError: String?
@@ -29,13 +45,16 @@ struct GameView: View {
         ScrollView {
             VStack(spacing: 20) {
                 header
+                TimelineView(.periodic(from: .now, by: 60)) { context in
+                    progressCard(at: context.date)
+                }
                 modes
                 Button { showsChallenge = true } label: {
                     Label("リンクで対戦", systemImage: "person.2")
                 }.disabled(game.isLoading)
                 if let rival = game.rival {
                     Text("対戦中：相手のタイム \(GameModel.timeString(TimeInterval(rival.seconds)))")
-                        .font(.callout.bold()).foregroundStyle(Palette.accent)
+                        .font(.callout.bold()).foregroundStyle(palette.accent)
                     Text("ヒントは3回。中断中はタイマーが止まります。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -53,7 +72,7 @@ struct GameView: View {
                     if game.isFinished { completion }
                     controls
                     if let message = game.message {
-                        Text(message).font(.callout).foregroundStyle(Palette.accent)
+                        Text(message).font(.callout).foregroundStyle(palette.accent)
                             .accessibilityAddTraits(.updatesFrequently)
                     } else if game.mode == .tutorial {
                         Text("1からはじめて、7 → 11 → 16の順に、すべてのマスをなぞってね")
@@ -61,7 +80,7 @@ struct GameView: View {
                     }
                 } else if game.isLoading {
                     VStack(spacing: 16) {
-                        ProgressView().tint(Palette.accent)
+                        ProgressView().tint(palette.accent)
                         Text("問題を作っています…")
                     }
                     .frame(maxWidth: .infinity, minHeight: 300)
@@ -79,12 +98,17 @@ struct GameView: View {
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
         }
-        .background(Palette.background.ignoresSafeArea())
-        .foregroundStyle(Palette.foreground)
-        .tint(Palette.accent)
+        .background(palette.background.ignoresSafeArea())
+        .foregroundStyle(palette.foreground)
+        .tint(palette.accent)
+        .environment(\.hitofudePalette, palette)
+        .preferredColorScheme(game.isNightTheme ? .dark : nil)
         .task { await game.startInitialGame() }
         .onChange(of: scenePhase, initial: true) { _, phase in
             game.setActive(phase == .active)
+        }
+        .sheet(isPresented: $showsProgress) {
+            ProgressCalendarView(game: game)
         }
         .sheet(isPresented: $showsChallenge) { challengeSheet }
         .sheet(isPresented: $showsHelp) {
@@ -105,6 +129,28 @@ struct GameView: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsHelp = false } } }
             }.presentationDetents([.medium, .large])
         }
+    }
+
+    private func progressCard(at date: Date) -> some View {
+        let count = game.progress.count(in: date)
+        return Button { showsProgress = true } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("今月のひとふで", systemImage: "calendar")
+                    Spacer()
+                    Text("\(count)／10問").monospacedDigit()
+                }.font(.subheadline.bold())
+                ProgressView(value: Double(min(count, 10)), total: 10).tint(palette.accent)
+                Text(count >= 10 ? "今月の目標達成！休みながら、自分のペースで。" :
+                     game.progress.nightUnlocked ? "あと\(10 - count)問で今月の目標達成。" :
+                     "あと\(10 - count)問で「夜空」の色をプレゼント。")
+                    .font(.caption)
+            }
+            .padding(16).background(palette.soft, in: RoundedRectangle(cornerRadius: 16))
+            .foregroundStyle(palette.foreground)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("達成カレンダーと色の設定を開く")
     }
 
     private var challengeSheet: some View {
@@ -147,7 +193,7 @@ struct GameView: View {
     private var header: some View {
         VStack(spacing: 12) {
             HStack {
-                (Text("ヒト") + Text("フデ").foregroundColor(Palette.accent))
+                (Text("ヒト") + Text("フデ").foregroundColor(palette.accent))
                     .font(.system(.largeTitle, design: .rounded, weight: .black))
                 Spacer()
                 Button { showsHelp = true } label: {
@@ -181,8 +227,8 @@ struct GameView: View {
                     Button { Task { await game.load(mode) } } label: {
                         Text(mode.title).font(.subheadline.bold())
                             .padding(.horizontal, 18).frame(minHeight: 44)
-                            .background(game.mode == mode ? Palette.accent : Palette.soft, in: Capsule())
-                            .foregroundStyle(game.mode == mode ? Palette.background : Palette.foreground)
+                            .background(game.mode == mode ? palette.accent : palette.soft, in: Capsule())
+                            .foregroundStyle(game.mode == mode ? palette.background : palette.foreground)
                     }
                     .accessibilityAddTraits(game.mode == mode ? .isSelected : [])
                     .disabled(game.isLoading)
@@ -211,8 +257,15 @@ struct GameView: View {
     }
     private var completion: some View {
         VStack(spacing: 14) {
-            Text("クリア！").font(.largeTitle.bold()).foregroundStyle(Palette.accent)
+            Text("クリア！").font(.largeTitle.bold()).foregroundStyle(palette.accent)
             Text("\(game.mode.title)  \(GameModel.timeString(game.elapsed(at: Date())))")
+            if game.hintsLeft == 3, game.mode != .tutorial {
+                Text("ヒントなしで解けたね").font(.headline)
+            }
+            if let completionMessage = game.completionMessage {
+                Text(completionMessage).multilineTextAlignment(.center)
+            }
+            Button("達成カレンダーを見る") { showsProgress = true }
             if let verdict = game.verdict {
                 Text(verdict).font(.headline)
                 Button("同じ問題で再挑戦") {
@@ -228,18 +281,19 @@ struct GameView: View {
             }
             HStack {
                 ShareLink(item: game.shareText) { Label("結果を共有", systemImage: "square.and.arrow.up") }
-                Button(game.mode == .tutorial ? "きょうの1問へ" : "つぎの問題") {
-                    Task { await game.load(game.mode == .tutorial ? .daily : game.mode) }
+                Button(game.mode == .tutorial ? "きょうの1問へ" : game.mode == .daily ? "別の問題に挑戦" : "つぎの問題") {
+                    Task { await game.load(game.mode == .tutorial ? .daily : game.mode == .daily ? .medium : game.mode) }
                 }
             }.buttonStyle(.bordered)
         }
         .padding(20).frame(maxWidth: .infinity)
-        .background(Palette.soft, in: RoundedRectangle(cornerRadius: 20))
+        .background(palette.soft, in: RoundedRectangle(cornerRadius: 20))
         .accessibilityElement(children: .contain)
     }
 }
 
 private struct BoardView: View {
+    @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
     @State private var previousPoint: CGPoint?
@@ -249,7 +303,7 @@ private struct BoardView: View {
             let width = geometry.size.width
             let step = width / CGFloat(puzzle.size)
             ZStack {
-                RoundedRectangle(cornerRadius: 18).fill(Palette.cell)
+                RoundedRectangle(cornerRadius: 18).fill(palette.cell)
                 ForEach(0..<(puzzle.size * puzzle.size), id: \.self) { index in
                     let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
                     let order = game.route.firstIndex(of: cell).map { $0 + 1 }
@@ -257,12 +311,12 @@ private struct BoardView: View {
                     Button { game.step(cell) } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(game.highlighted == cell ? Palette.accent.opacity(0.35) :
-                                      order != nil ? Palette.accent.opacity(0.16) : Palette.soft.opacity(0.5))
+                                .fill(game.highlighted == cell ? palette.accent.opacity(0.35) :
+                                      order != nil ? palette.accent.opacity(0.16) : palette.soft.opacity(0.5))
                             if let number = clue ?? order {
                                 Text("\(number)")
                                     .font(.system(size: max(14, step * 0.38), weight: clue != nil ? .bold : .regular, design: .rounded))
-                                    .foregroundStyle(Palette.foreground)
+                                    .foregroundStyle(palette.foreground)
                             }
                         }
                         .frame(width: max(1, step - 6), height: max(1, step - 6))
@@ -277,12 +331,12 @@ private struct BoardView: View {
                         if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
                     }
                 }
-                .stroke(Palette.accent.opacity(0.5), style: StrokeStyle(lineWidth: max(4, step * 0.13), lineCap: .round, lineJoin: .round))
+                .stroke(palette.accent.opacity(0.5), style: StrokeStyle(lineWidth: max(4, step * 0.13), lineCap: .round, lineJoin: .round))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
             .padding(0)
-            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Palette.foreground, lineWidth: 2).allowsHitTesting(false))
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.foreground, lineWidth: 2).allowsHitTesting(false))
             .contentShape(Rectangle())
             .highPriorityGesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
@@ -307,6 +361,112 @@ private struct BoardView: View {
 
     private func center(of cell: Cell, step: CGFloat) -> CGPoint {
         CGPoint(x: (CGFloat(cell.column) + 0.5) * step, y: (CGFloat(cell.row) + 0.5) * step)
+    }
+}
+
+private struct ProgressCalendarView: View {
+    @ObservedObject var game: GameModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.hitofudePalette) private var palette
+    @State private var month = Date()
+    @State private var selectedDay = Date()
+    private let calendar = PlayProgress.calendar()
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+
+    private var monthStart: Date {
+        calendar.date(from: calendar.dateComponents([.year, .month], from: month))!
+    }
+    private var leadingSpaces: Int { (calendar.component(.weekday, from: monthStart) + 5) % 7 }
+    private var days: Int { calendar.range(of: .day, in: .month, for: monthStart)!.count }
+    private var title: String {
+        "\(String(calendar.component(.year, from: month)))年\(calendar.component(.month, from: month))月"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    HStack {
+                        Button { moveMonth(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
+                            .accessibilityLabel("前の月")
+                        Spacer()
+                        Text(title).font(.title2.bold())
+                        Spacer()
+                        Button { moveMonth(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
+                            .accessibilityLabel("次の月")
+                    }
+                    LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(Array(["月", "火", "水", "木", "金", "土", "日"].enumerated()), id: \.offset) { _, name in
+                            Text(name).font(.caption).foregroundStyle(.secondary)
+                        }
+                        ForEach(0..<(leadingSpaces + days), id: \.self) { index in
+                            if index < leadingSpaces { Color.clear.frame(height: 48) }
+                            else { dayView(index - leadingSpaces + 1) }
+                        }
+                    }
+                    Text("● クリアした日　✓ きょうの1問を達成")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("\(calendar.component(.month, from: selectedDay))月\(calendar.component(.day, from: selectedDay))日：\(game.progress.count(on: selectedDay))問クリア" +
+                         (game.progress.dailyCompleted(on: selectedDay) ? "・きょうの1問も達成！" : ""))
+                        .font(.callout).multilineTextAlignment(.center)
+                    Text("この月は\(game.progress.count(in: month))／10問達成")
+                        .font(.headline)
+                    Text("連続でなくても大丈夫。練習以外の新しい問題を10問解こう。同じ問題の解き直しは数に含めません。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Divider()
+                    themePicker
+                }.padding(20)
+            }
+            .background(palette.background).foregroundStyle(palette.foreground)
+            .navigationTitle("達成カレンダー")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { dismiss() } } }
+        }
+        .tint(palette.accent)
+    }
+
+    private func dayView(_ day: Int) -> some View {
+        let date = calendar.date(byAdding: .day, value: day - 1, to: monthStart)!
+        let count = game.progress.count(on: date)
+        let daily = game.progress.dailyCompleted(on: date)
+        let selected = calendar.isDate(date, inSameDayAs: selectedDay)
+        return Button { selectedDay = date } label: {
+            VStack(spacing: 2) {
+                Text("\(day)").font(.callout.bold())
+                Image(systemName: daily ? "checkmark" : "circle.fill")
+                    .font(.system(size: daily ? 12 : 5))
+                    .opacity(daily || count > 0 ? 1 : 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(count > 0 || daily ? palette.accent.opacity(0.2) : palette.soft.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? palette.accent : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(day)日、\(count)問クリア" + (daily ? "、きょうの1問達成" : ""))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var themePicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("ごほうびの色", systemImage: "gift").font(.headline)
+            if game.progress.nightUnlocked {
+                Text("「夜空」をプレゼント！一度手に入れた色は、来月も使えます。")
+                    .font(.footnote)
+                Picker("配色", selection: Binding(get: { game.isNightTheme }, set: { game.selectNightTheme($0) })) {
+                    Text("いつもの色").tag(false)
+                    Text("夜空").tag(true)
+                }.pickerStyle(.segmented)
+            } else {
+                Label("どこかの月に10問達成で「夜空」が使えます", systemImage: "lock")
+                    .font(.footnote)
+            }
+        }
+    }
+
+    private func moveMonth(_ offset: Int) {
+        if let next = calendar.date(byAdding: .month, value: offset, to: monthStart) {
+            month = next; selectedDay = next
+        }
     }
 }
 
