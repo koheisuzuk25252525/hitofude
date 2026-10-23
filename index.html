@@ -171,6 +171,7 @@ h1 span{color:var(--acc)}
       <div class="row">
         <button class="btn primary" id="share">結果をコピー</button>
         <button class="btn" id="dare">対戦を挑む</button>
+        <button class="btn" id="copyDare">リンクをコピー</button>
         <button class="btn" id="next">つぎの問題</button>
       </div>
     </div>
@@ -503,7 +504,7 @@ function finish(){
   drawRoute({draw:true});
   const cells=$('cells').children;route.forEach(([r,c],i)=>{const d=cells[r*puz.C+c];d.classList.remove('win');d.style.animationDelay=(i*18)+'ms';void d.offsetWidth;d.classList.add('win')});
   setTimeout(()=>FX.burst(110),250);setTimeout(()=>FX.burst(60),650);
-  $('next').textContent=mode==='tutorial'?'きょうの1問へ':'つぎの問題';$('dare').hidden=mode==='tutorial';
+  $('next').textContent=mode==='tutorial'?'きょうの1問へ':'つぎの問題';$('dare').hidden=mode==='tutorial';$('copyDare').hidden=mode==='tutorial';
   const dn=$('done');dn.hidden=false;dn.classList.remove('in');void dn.offsetWidth;dn.classList.add('in');
 }
 function emojiGrid(){
@@ -630,7 +631,30 @@ async function copy(txt,okMsg){
     finally{ta.remove()}
   }
 }
-$('dare').onclick=()=>copy(shareText(true),'挑戦リンクをコピーしました');
+// Use the system share sheet for a one-tap LINE / Messages invitation.
+function challengeShareData(){
+  const ms=finalMs??(t0?Math.max(0,Date.now()-t0):0);
+  return {
+    title:'ヒトフデで対戦！',
+    text:`ヒトフデで対戦しよう！\n${LABEL[mode]} ${puz.R}×${puz.C}  私の記録 ${fmt(ms)}\nこのタイムを超えられる？`,
+    url:challengeLink(ms)
+  };
+}
+async function shareChallenge(){
+  const data=challengeShareData();
+  if(typeof navigator.share==='function'){
+    try{
+      // Must be called before any await to retain the user's click gesture.
+      await navigator.share(data);
+      return;
+    }catch(e){
+      if(e?.name==='AbortError')return; // User closed the share sheet.
+    }
+  }
+  await copy(data.url,'対戦リンクをコピーしました');
+}
+$('dare').onclick=shareChallenge;
+$('copyDare').onclick=()=>copy(challengeShareData().url,'対戦リンクをコピーしました');
 $('cal').onclick=()=>{const pn=$('calpanel');pn.hidden=!pn.hidden;$('cal').setAttribute('aria-pressed',String(!pn.hidden));renderCalendar()};
 $('share').onclick=()=>copy(shareText(false),'コピーしました');
 for(const b of document.querySelectorAll('.tab'))b.onclick=()=>newGame(b.dataset.mode);
