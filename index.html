@@ -126,7 +126,8 @@ h1 span{color:var(--acc)}
   background:color-mix(in srgb,var(--bg) 88%,transparent);border-radius:10px;z-index:5;text-align:center;padding:16px}
 .done h2{font-family:var(--font-display);font-weight:900;font-size:28px;margin:0;color:var(--acc)}
 .done p{margin:0;font-variant-numeric:tabular-nums}
-.done .row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.done .row{display:flex;width:100%;max-width:360px;gap:8px;flex-wrap:wrap;justify-content:center}
+.done .row .btn{flex:1 1 calc(50% - 8px);min-height:48px}
 .credits{max-width:560px;width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;font-size:12px;color:var(--muted);padding-bottom:12px}
 .credits a{color:inherit;overflow-wrap:anywhere}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);
