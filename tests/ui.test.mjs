@@ -182,6 +182,12 @@ try {
     for(const p of puz.path.slice(1))tryStep(...p);
     globalThis.originalShare=shareText(true);globalThis.originalLink=challengeLink(finalMs);`);
   check('completion persists exact milliseconds', await evaluate("[finalMs,store.get('best:easy'),$('timer').textContent]"), [12345,12345,'0:12']);
+  check('four completion buttons form two readable rows on a small phone', await evaluate(`(()=>{
+    const bs=[...document.querySelectorAll('#done .row .btn')].filter(b=>!b.hidden);
+    const rs=bs.map(b=>b.getBoundingClientRect());
+    return [bs.length,Math.abs(rs[0].top-rs[1].top)<1,rs[2].top>rs[0].top,
+      Math.abs(rs[2].top-rs[3].top)<1,rs.every(r=>r.width>=105&&r.height>=44&&r.left>=0&&r.right<=innerWidth+1)];
+  })()`), [4,true,true,true,true]);
   await evaluate(`testNow+=86400000;finish();
     Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText(text){globalThis.copied=text;return Promise.resolve()}}});
     Object.defineProperty(navigator,'share',{configurable:true,value:data=>{globalThis.shared=data;return Promise.resolve()}});
