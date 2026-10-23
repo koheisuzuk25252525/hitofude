@@ -265,6 +265,45 @@ try {
     Object.assign(SITE_CREDITS,{name:'<制作者>',creatorUrl:'https://example.com/about',worksUrl:'javascript:alert(1)'});
     renderCredits();[!$('credits').hidden,$('credits').textContent.startsWith('制作：<制作者>'),$('credits').querySelectorAll('a').length,$('credits').querySelector('a').href]
   `), [true,true,1,'https://example.com/about']);
+  await evaluate("newGame('easy',1000);$('hint').click()");
+  check('hint marks the first cell and spends exactly one hint', await evaluate(`[
+    hintsLeft,hintsUsed,$('hint').disabled,$('hintStatus').hidden,
+    [...$('cells').children].findIndex(c=>c.querySelector('.hint-marker'))===puz.path[0][0]*puz.C+puz.path[0][1]
+  ]`), [2,1,true,false,true]);
+  await evaluate('useHint()');
+  check('an already displayed hint cannot spend another hint', await evaluate('[hintsLeft,hintsUsed]'), [2,1]);
+  await evaluate("document.querySelector('.c.glow').dispatchEvent(new AnimationEvent('animationend',{animationName:'pop'}))");
+  check('other animation endings cannot erase the hint', await evaluate("!!document.querySelector('.hint-marker') && !!document.querySelector('.c.glow')"), true);
+  await cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  check('reduced motion retains a static visible hint', await evaluate("getComputedStyle(document.querySelector('.c.glow')).boxShadow!=='none'"), true);
+  await evaluate('tryStep(...puz.path[0])');
+  check('advancing clears hint and re-enables remaining hints', await evaluate("[document.querySelector('.hint-marker')===null,$('hintStatus').hidden,$('hint').disabled]"), [true,true,false]);
+  await evaluate(`globalThis.wrongPrefix=null;
+    for(let k=1;k<puz.path.length&&!wrongPrefix;k++){
+      const [r,c]=puz.path[k-1];
+      for(const candidate of neighbors(r,c,puz.R,puz.C)){
+        const [rr,cc]=candidate,clue=puz.clues.get(rr+','+cc);
+        if(puz.path.slice(0,k).some(([pr,pc])=>pr===rr&&pc===cc))continue;
+        if(puz.path[k][0]===rr&&puz.path[k][1]===cc)continue;
+        if(clue!==undefined&&clue!==k+1)continue;
+        wrongPrefix={k,candidate};break;
+      }
+    }
+    if(!wrongPrefix)throw Error('fixture must allow a legal wrong turn');
+    $('clear').click();for(const point of puz.path.slice(0,wrongPrefix.k))tryStep(...point);
+    tryStep(...wrongPrefix.candidate);globalThis.beforeHint=hintsLeft;$('hint').click();
+  `);
+  check('one hint corrects wrong turn AND shows the next cell', await evaluate(`[
+    route.length===wrongPrefix.k,hintsLeft===beforeHint-1,
+    $('hintStatus').textContent.includes('戻しました'),
+    $('cells').children[puz.path[wrongPrefix.k][0]*puz.C+puz.path[wrongPrefix.k][1]].querySelector('.hint-marker').textContent===String(wrongPrefix.k+1)
+  ]`), [true,true,true,true]);
+  await evaluate("newGame('easy',1000);$('hint').click();tryStep(...puz.path[0]);$('hint').click();tryStep(...puz.path[1]);$('hint').click()");
+  check('third hint remains visible at zero remaining', await evaluate("[hintsLeft,$('hint').disabled,!!document.querySelector('.hint-marker')]"), [0,true,true]);
+  await evaluate("newGame('tutorial');useHint()");
+  check('tutorial does not spend hints even when invoked directly', await evaluate('[hintsLeft,hintsUsed]'), [3,0]);
+  await cdp('Emulation.setEmulatedMedia', { features: [] });
+
   await evaluate('globalThis.RealWorker=Worker');
   for (const failure of ['error', 'messageerror', 'constructor', 'timeout']) {
     await evaluate(`(async()=>{globalThis.terminated=0;globalThis.realTimeout=setTimeout;
