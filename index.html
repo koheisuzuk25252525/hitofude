@@ -370,7 +370,7 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 let genToken=0;
 function newGame(m,forcedSeed){
   mode=m;const tok=++genToken;
-  cancelGeneration();
+  cancelGeneration();endGesture();
   seed=forcedSeed!==undefined?forcedSeed:(m==='daily'?todayKey():(Date.now()^Math.floor(Math.random()*1e9))>>>0);
   const [R,C]=SIZES[m];
   puz=null;route=[];finished=false;finalMs=null;drawing=false;activePointer=null;lastPointer=null;mistakes=0;hintsLeft=HINTS;hintsUsed=0;VOICE.stop();
@@ -542,7 +542,23 @@ function renderCalendar(){
 }
 // ---------- input ----------
 const board=$('board');
-let activePointer=null,lastPointer=null;
+let activePointer=null,lastPointer=null,pageScrollLock=null;
+function lockPageScroll(){
+  if(pageScrollLock)return;
+  const body=document.body,root=document.documentElement;
+  pageScrollLock={x:scrollX,y:scrollY,overflow:root.style.overflow,
+    styles:Object.fromEntries(['position','top','left','right'].map(key=>[key,body.style[key]]))};
+  // A fixed body also prevents Safari's rubber-band scrolling while tracing.
+  body.style.position='fixed';body.style.top=-pageScrollLock.y+'px';
+  body.style.left='0';body.style.right='0';root.style.overflow='hidden';
+}
+function endGesture(){
+  drawing=false;activePointer=null;lastPointer=null;
+  if(!pageScrollLock)return;
+  const saved=pageScrollLock;pageScrollLock=null;
+  Object.assign(document.body.style,saved.styles);document.documentElement.style.overflow=saved.overflow;
+  window.scrollTo(saved.x,saved.y);
+}
 function pointerCell(point){
   if(!puz)return null;
   const rect=$('cells').getBoundingClientRect();
@@ -570,18 +586,27 @@ board.addEventListener('pointerdown',e=>{
   if(!puz||finished||activePointer!==null||!e.isPrimary||e.button!==0)return;
   const point={x:e.clientX,y:e.clientY};if(!pointerCell(point))return;
   SFX.init();SFX.resume();VOICE.init();drawing=true;activePointer=e.pointerId;lastPointer=null;
+  if(e.pointerType==='touch')lockPageScroll();
+  if(e.cancelable)e.preventDefault();
   board.setPointerCapture(e.pointerId);tracePointer(point);
 });
 function movePointer(e){
   if(!drawing||e.pointerId!==activePointer)return;
+  if(e.cancelable)e.preventDefault();
   const points=e.getCoalescedEvents?.()||[];
   for(const p of points)tracePointer({x:p.clientX,y:p.clientY});
   tracePointer({x:e.clientX,y:e.clientY});
 }
 function releasePointer(e){
   if(e.pointerId!==activePointer)return;
-  drawing=false;activePointer=null;lastPointer=null;
+  endGesture();
 }
+// Safari needs an explicitly non-passive touch listener to cancel native panning.
+for(const type of ['touchstart','touchmove'])board.addEventListener(type,e=>{
+  if(drawing&&e.cancelable)e.preventDefault();
+},{passive:false});
+window.addEventListener('blur',endGesture);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)endGesture()});
 board.addEventListener('pointermove',movePointer);
 board.addEventListener('pointerup',e=>{movePointer(e);releasePointer(e)});
 board.addEventListener('pointercancel',releasePointer);
