@@ -36,11 +36,14 @@
 :root[data-theme="dark"]{
   --bg:#1b1917; --fg:#f2ece0; --muted:#9a9388; --line:#3a3630; --cell:#262320;
   --acc:#ff7a5c; --acc2:#3fc0bd; --acc3:#ffc85a; --ok:#4fc08d; --pill:#2b2824; color-scheme:dark }
-html,body{height:auto;min-height:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);
+html,body{height:100%;width:100%;margin:0;overflow:hidden;overscroll-behavior:none}
+body{position:fixed;inset:0;background:var(--bg);color:var(--fg);font-family:var(--font-body)}
+.app-scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:none;
+  -webkit-overflow-scrolling:touch;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
   padding-block:6px 16px;display:flex;flex-direction:column;align-items:center;gap:10px;box-sizing:border-box;
   overscroll-behavior:none;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.app-scroll>*{flex-shrink:0}
 .top{width:100%;max-width:560px;display:grid;gap:8px;min-width:0}
 h1{font-family:var(--font-display);font-weight:900;font-size:26px;margin:0;letter-spacing:.02em}
 h1 span{color:var(--acc)}
@@ -133,8 +136,7 @@ h1 span{color:var(--acc)}
 </style>
 </head>
 <body>
-
-
+<main class="app-scroll" id="appScroll" aria-label="ヒトフデ">
 <div class="top">
   <h1>ヒト<span>フデ</span></h1>
   <div class="stats"><span id="count">0/36</span><span id="langtag" aria-hidden="true"></span><span id="timer">0:00</span><span id="best" hidden></span><button class="iconbtn" id="help" aria-label="あそびかた">？</button><button class="iconbtn" id="cal" aria-pressed="false" aria-label="カレンダー">📅</button><button class="iconbtn" id="voice" aria-pressed="true" aria-label="数える声">🗣️</button><button class="iconbtn" id="snd" aria-pressed="true" aria-label="効果音">🔊</button></div>
@@ -183,6 +185,7 @@ h1 span{color:var(--acc)}
 <p class="hint" id="instructions">1 から指でなぞって、すべてのマスを1回ずつ通り、いちばん大きい数字で終わる。数字は「何番目に通るか」。</p>
 <footer class="credits" id="credits" hidden aria-label="制作者・作品一覧"></footer>
 <div class="toast" id="toast" role="status"></div>
+</main>
 
 <script>
 // ---------- seeded RNG ----------
@@ -313,13 +316,12 @@ const SFX={ctx:null,on:true,master:null,
 };
 function buzz(ms){try{navigator.vibrate?.(ms)}catch(e){}}
 
-// ---------- voice: 一歩ごとに言語を変えて数える ----------
+// ---------- voice: 日本語で数える ----------
 const VOICE={on:true,voices:[],
-  langs:[['ja-JP','🇯🇵'],['en-US','🇺🇸'],['zh-CN','🇨🇳'],['ko-KR','🇰🇷'],['es-ES','🇪🇸'],['fr-FR','🇫🇷'],['de-DE','🇩🇪'],['it-IT','🇮🇹'],['pt-BR','🇧🇷'],['hi-IN','🇮🇳'],['ru-RU','🇷🇺'],['th-TH','🇹🇭']],
   init(){if(!('speechSynthesis' in window))return;const load=()=>{this.voices=speechSynthesis.getVoices()};load();speechSynthesis.onvoiceschanged=load},
   pick(lang){const v=this.voices;return v.find(x=>x.lang===lang)||v.find(x=>x.lang.startsWith(lang.slice(0,2)))||null},
   say(n){
-    const [lang,flag]=this.langs[(n-1)%this.langs.length];$('langtag').textContent=flag;
+    const lang='ja-JP';$('langtag').textContent='';
     if(!this.on||!('speechSynthesis' in window))return;
     try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(String(n));u.lang=lang;const v=this.pick(lang);if(v)u.voice=v;u.rate=1.15;u.pitch=1.05;u.volume=0.9;speechSynthesis.speak(u)}catch(e){}
   },
@@ -545,19 +547,17 @@ const board=$('board');
 let activePointer=null,lastPointer=null,pageScrollLock=null;
 function lockPageScroll(){
   if(pageScrollLock)return;
-  const body=document.body,root=document.documentElement;
-  pageScrollLock={x:scrollX,y:scrollY,overflow:root.style.overflow,
-    styles:Object.fromEntries(['position','top','left','right'].map(key=>[key,body.style[key]]))};
-  // A fixed body also prevents Safari's rubber-band scrolling while tracing.
-  body.style.position='fixed';body.style.top=-pageScrollLock.y+'px';
-  body.style.left='0';body.style.right='0';root.style.overflow='hidden';
+  const scroller=$('appScroll');
+  pageScrollLock={x:scroller.scrollLeft,y:scroller.scrollTop,overflowY:scroller.style.overflowY};
+  // The document stays fixed; only this internal surface can scroll between games.
+  scroller.style.overflowY='hidden';
 }
 function endGesture(){
   drawing=false;activePointer=null;lastPointer=null;
   if(!pageScrollLock)return;
   const saved=pageScrollLock;pageScrollLock=null;
-  Object.assign(document.body.style,saved.styles);document.documentElement.style.overflow=saved.overflow;
-  window.scrollTo(saved.x,saved.y);
+  const scroller=$('appScroll');scroller.style.overflowY=saved.overflowY;
+  scroller.scrollTo(saved.x,saved.y);
 }
 function pointerCell(point){
   if(!puz)return null;
@@ -602,9 +602,9 @@ function releasePointer(e){
   endGesture();
 }
 // Safari needs an explicitly non-passive touch listener to cancel native panning.
-for(const type of ['touchstart','touchmove'])board.addEventListener(type,e=>{
+for(const type of ['touchstart','touchmove'])document.addEventListener(type,e=>{
   if(drawing&&e.cancelable)e.preventDefault();
-},{passive:false});
+},{passive:false,capture:true});
 window.addEventListener('blur',endGesture);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)endGesture()});
 board.addEventListener('pointermove',movePointer);

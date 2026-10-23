@@ -148,25 +148,34 @@ try {
   check('coalesced corner samples retain the actual turn and cancel releases input', await evaluate('[route.length,activePointer,lastPointer]'), [5,null,null]);
 
   await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 450, deviceScaleFactor: 1, mobile: true });
-  await evaluate("newGame('tutorial');document.body.style.top='1px';window.scrollTo(0,100)");
-  const departure = await evaluate(`(()=>{const r=$('cells').children[0].getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,scroll:scrollY}})()`);
+  await evaluate("newGame('tutorial');$('appScroll').scrollTo(0,100)");
+  const departure = await evaluate(`(()=>{const r=$('cells').children[0].getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,scroll:$('appScroll').scrollTop}})()`);
   assert(departure.scroll > 0, 'scroll test needs a nonzero departure offset');
   await touch('touchStart', { x: departure.x, y: departure.y });
-  check('touch tracing locks page without moving the board', await evaluate(`(()=>{const r=$('cells').children[0].getBoundingClientRect();return [document.body.style.position,document.documentElement.style.overflow,Math.abs(r.y+r.height/2-${departure.y})<1]})()`), ['fixed','hidden',true]);
+  check('touch tracing locks page without moving the board', await evaluate(`(()=>{const r=$('cells').children[0].getBoundingClientRect();return [getComputedStyle(document.body).position,$('appScroll').style.overflowY,Math.abs(r.y+r.height/2-${departure.y})<1]})()`), ['fixed','hidden',true]);
   check('touchmove cancels browser panning', await evaluate(`(()=>{const e=new Event('touchmove',{cancelable:true,bubbles:true});board.dispatchEvent(e);return e.defaultPrevented})()`), true);
   await touch('touchEnd');
-  check('touch end restores styles and prior scroll offset', await evaluate('[document.body.style.position,document.body.style.top,document.documentElement.style.overflow,scrollY,pageScrollLock]'), ['', '1px', '', departure.scroll, null]);
+  check('touch end restores styles and prior scroll offset', await evaluate("[$('appScroll').style.overflowY,$('appScroll').scrollTop,scrollY,pageScrollLock]"), ['', departure.scroll, 0, null]);
   for (const reason of ['cancel', 'blur', 'new-game']) {
     await touch('touchStart', { x: departure.x, y: departure.y });
     if (reason === 'cancel') await touch('touchCancel');
     else if (reason === 'blur') await evaluate("window.dispatchEvent(new Event('blur'))");
     else await evaluate("newGame('tutorial')");
-    check(`${reason} releases scroll lock and input state`, await evaluate('[pageScrollLock,activePointer,drawing,document.body.style.position]'), [null,null,false,'']);
+    check(`${reason} releases scroll lock and input state`, await evaluate("[pageScrollLock,activePointer,drawing,$('appScroll').style.overflowY]"), [null,null,false,'']);
     if (reason !== 'cancel') await touch('touchEnd');
   }
   check('touchmove outside a game gesture is not cancelled', await evaluate(`(()=>{const e=new Event('touchmove',{cancelable:true,bubbles:true});board.dispatchEvent(e);return e.defaultPrevented})()`), false);
-  await evaluate("document.body.style.top='';window.scrollTo(0,0)");
+  check('document cannot scroll while internal surface remains scrollable', await evaluate(`(()=>{window.scrollTo(0,100);const s=$('appScroll');s.scrollTo(0,50);const result=[scrollY,s.scrollTop>0,getComputedStyle(s).overflowY];s.scrollTo(0,0);return result})()`), [0,true,'auto']);
+  await evaluate("$('appScroll').scrollTo(0,0)");
   await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
+
+  check('voice always uses Japanese and respects off setting', await evaluate(`(()=>{
+    const originalSpeak=speechSynthesis.speak,originalCancel=speechSynthesis.cancel,wasOn=VOICE.on;
+    const spoken=[];speechSynthesis.speak=u=>spoken.push([u.text,u.lang]);speechSynthesis.cancel=()=>{};
+    VOICE.on=true;VOICE.say(1);VOICE.say(2);VOICE.say(12);VOICE.on=false;VOICE.say(13);
+    VOICE.on=wasOn;speechSynthesis.speak=originalSpeak;speechSynthesis.cancel=originalCancel;
+    return [spoken,$('langtag').textContent];
+  })()`), [[['1','ja-JP'],['2','ja-JP'],['12','ja-JP']],'']);
 
   await evaluate(`globalThis.originalNow=Date.now;globalThis.testNow=100000;Date.now=()=>testNow;
     newGame('easy',1000);tryStep(...puz.path[0]);testNow+=12345;

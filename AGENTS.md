@@ -12,7 +12,7 @@ Codex・Claude など複数のAIエージェントが同じリポジトリで作
 - `seeded RNG` / `generator` … `makePuzzle(R,C,difficulty,rnd)`。ランダムなハミルトン路 → 手がかりを最小化 → 難易度で足し戻す。`countSolutions` で一意性を保証
 - `worker` … 8×8（鬼）は数秒かかるので Blob Worker で生成
 - `audio` … WebAudio で効果音を合成（音源ファイルなし）。1手目 C3 → 最終手 C7 に連続上昇
-- `voice` … Web Speech で一歩ごとに12言語で数える
+- `voice` … Web Speech で一歩ごとに日本語で数える
 - `game state` / `input` … Pointer Events で指なぞり。`route` が現在の経路
 - 対戦は URL ハッシュ `#c-<mode>-<seed>-<秒>` で同じ問題を再現する非同期方式
 - 保存は localStorage（キー接頭辞 `hitofude:`）。読み書きは必ず try/catch 経由の `store`
