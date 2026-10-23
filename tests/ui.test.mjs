@@ -182,10 +182,34 @@ try {
     for(const p of puz.path.slice(1))tryStep(...p);
     globalThis.originalShare=shareText(true);globalThis.originalLink=challengeLink(finalMs);`);
   check('completion persists exact milliseconds', await evaluate("[finalMs,store.get('best:easy'),$('timer').textContent]"), [12345,12345,'0:12']);
-  await evaluate(`testNow+=86400000;finish();Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText(text){globalThis.copied=text;return Promise.resolve()}}});$('dare').click()`);
-  check('day-later challenge uses the frozen result', await evaluate('[shareText(true)===originalShare,copied===originalShare,challengeLink(finalMs)===originalLink,finalMs]'), [true,true,true,12345]);
+  await evaluate(`testNow+=86400000;finish();
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText(text){globalThis.copied=text;return Promise.resolve()}}});
+    Object.defineProperty(navigator,'share',{configurable:true,value:data=>{globalThis.shared=data;return Promise.resolve()}});
+    $('dare').click()`);
+  check('native share receives a frozen-time invitation and challenge URL', await evaluate(
+    "[shareText(true)===originalShare,shared.url===originalLink,shared.text.includes('0:12'),shared.title==='ヒトフデで対戦！',finalMs]"
+  ), [true,true,true,true,12345]);
+  await evaluate(`(async()=>{
+    Object.defineProperty(navigator,'share',{configurable:true,value:undefined});
+    globalThis.copied=null;
+    await shareChallenge();
+  })()`);
+  check('unsupported share copies only the challenge URL', await evaluate('copied'), await evaluate('originalLink'));
+  await evaluate(`(async()=>{
+    globalThis.copied=null;
+    Object.defineProperty(navigator,'share',{configurable:true,value:()=>Promise.reject(Object.assign(new Error('cancel'),{name:'AbortError'}))});
+    await shareChallenge();
+  })()`);
+  check('cancelled share does not copy anything', await evaluate('copied'), null);
+  await evaluate(`(async()=>{
+    Object.defineProperty(navigator,'share',{configurable:true,value:()=>Promise.reject(new Error('share unavailable'))});
+    await shareChallenge();
+  })()`);
+  check('failed share gracefully copies the challenge URL', await evaluate('copied'), await evaluate('originalLink'));
+  await evaluate("$('copyDare').click()");
+  check('explicit copy-link button copies the challenge URL', await evaluate('copied'), await evaluate('originalLink'));
   await evaluate("$('share').click()");
-  check('result copy also uses the frozen time', await evaluate("[copied===shareText(false),copied.includes('⏱ 0:12')]"), [true,true]);
+  check('result copy still uses the frozen time', await evaluate("[copied===shareText(false),copied.includes('⏱ 0:12')]"), [true,true]);
   await evaluate("Date.now=originalNow;newGame('daily',20261021);tryStep(...puz.path[0]);for(const p of puz.path.slice(1))tryStep(...p)");
   check('daily date belongs to seed and stored daily record uses frozen result', await evaluate("[shareText().startsWith('ヒトフデ きょうの1問 2026/10/21'),store.get('daily:20261021')===finalMs]"), [true,true]);
   await evaluate("newGame('easy',1001)");
