@@ -215,9 +215,48 @@ try {
   await evaluate("$('copyDare').click()");
   check('explicit copy-link button copies the challenge URL', await evaluate('copied'), await evaluate('originalLink'));
   await evaluate("$('share').click()");
-  check('result copy still uses the frozen time', await evaluate("[copied===shareText(false),copied.includes('⏱ 0:12')]"), [true,true]);
+  check('ordinary result copy stays compatible', await evaluate("[copied===shareText(false),copied.includes('⏱ 0:12')]"), [true,true]);
+
+  await evaluate(`rival={seed:1000,ms:9000};
+    newGame('easy',1000);tryStep(...puz.path[0]);testNow+=55000;mistakes=8;
+    for(const p of puz.path.slice(1))tryStep(...p)`);
+  check('challenge finish switches to reply button', await evaluate("[$('share').textContent,$('doneText').textContent.includes('負け')]"), ['対戦結果を返信',true]);
+  check('challenge reply is a short match summary without URL or emoji grid', await evaluate(`(()=>{
+    const t=challengeResultText();
+    return [t.includes('リンクを送った人：0:09'),t.includes('挑戦した人：0:55'),
+      t.includes('タイム差：46秒'),t.includes('ミス 8回'),
+      t.includes('リンクを送った人の勝ち'),!t.includes('https://'),!t.includes('⬜'),!t.includes('🟧')];
+  })()`), [true,true,true,true,true,true,true,true]);
+  await evaluate(`(async()=>{
+    Object.defineProperty(navigator,'share',{configurable:true,value:data=>{globalThis.shared=data;return Promise.resolve()}});
+    await shareResult();
+  })()`);
+  check('challenge result uses text-only native share', await evaluate("[Object.keys(shared),shared.text===challengeResultText()]"), [['text'],true]);
+  await evaluate(`(async()=>{
+    Object.defineProperty(navigator,'share',{configurable:true,value:undefined});
+    globalThis.copied=null;
+    await shareResult();
+  })()`);
+  check('unsupported challenge reply copies the same readable text', await evaluate('copied===challengeResultText()'), true);
+  await evaluate(`(async()=>{
+    globalThis.copied=null;
+    Object.defineProperty(navigator,'share',{configurable:true,value:()=>Promise.reject(Object.assign(new Error('cancel'),{name:'AbortError'}))});
+    await shareResult();
+  })()`);
+  check('cancelled result share does not copy anything', await evaluate('copied'), null);
+  await evaluate(`(async()=>{
+    Object.defineProperty(navigator,'share',{configurable:true,value:()=>Promise.reject(new Error('share failure'))});
+    await shareResult();
+  })()`);
+  check('failed result share falls back to clear text', await evaluate('copied===challengeResultText()'), true);
+  await evaluate(`testNow+=86400000;
+    Object.defineProperty(navigator,'share',{configurable:true,value:data=>{globalThis.shared=data;return Promise.resolve()}});`);
+  check('shared match result stays frozen after a day', await evaluate("[challengeResultText().includes('0:55'),challengeResultText().includes('46秒')]"), [true,true]);
+
   await evaluate("Date.now=originalNow;newGame('daily',20261021);tryStep(...puz.path[0]);for(const p of puz.path.slice(1))tryStep(...p)");
   check('daily date belongs to seed and stored daily record uses frozen result', await evaluate("[shareText().startsWith('ヒトフデ きょうの1問 2026/10/21'),store.get('daily:20261021')===finalMs]"), [true,true]);
+  await evaluate(`Object.defineProperty(navigator,'share',{configurable:true,value:undefined});$('share').click()`);
+  check('ordinary daily result remains copyable', await evaluate("[!rival,$('share').textContent,copied===shareText(false)]"), [true,'結果をコピー',true]);
   await evaluate("newGame('easy',1001)");
   check('new game resets frozen result', await evaluate('finalMs'), null);
 
