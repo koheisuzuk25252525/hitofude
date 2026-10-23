@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <style>
+    :root { --bg:#f8f3e8; --fg:#1f1d22; --accent:#e8553a; --line:#d9d2c3; --cell:#fffdf8; }
+    text { font-family:'Noto Sans CJK JP','Hiragino Sans',sans-serif; fill:var(--fg); }
+  </style>
+  <rect width="1200" height="630" fill="var(--bg)"/>
+  <text x="76" y="206" font-size="100" font-weight="900">ヒト<tspan fill="var(--accent)">フデ</tspan></text>
+  <text x="82" y="306" font-size="32" font-weight="700">数字をたよりに、</text>
+  <text x="82" y="360" font-size="32" font-weight="700">ひと筆でつなごう。</text>
+  <text x="84" y="479" font-size="23">一筆書きロジックパズル</text>
+  <g transform="translate(694 106)">
+    <rect width="420" height="420" rx="16" fill="var(--cell)" stroke="var(--fg)" stroke-width="5"/>
+    <path d="M105 0V420 M210 0V420 M315 0V420 M0 105H420 M0 210H420 M0 315H420" fill="none" stroke="var(--line)" stroke-width="2"/>
+    <path d="M52.5 52.5H367.5V157.5H157.5" fill="none" stroke="var(--accent)" stroke-width="24" stroke-linejoin="round" stroke-linecap="round"/>
+    <g font-size="40" font-weight="900" text-anchor="middle" dominant-baseline="central">
+      <circle cx="52.5" cy="52.5" r="30" fill="var(--cell)"/><text x="52.5" y="52.5">1</text>
+      <circle cx="157.5" cy="157.5" r="30" fill="var(--cell)"/><text x="157.5" y="157.5">7</text>
+      <text x="262.5" y="262.5">11</text><text x="52.5" y="367.5">16</text>
+    </g>
+  </g>
+</svg>
