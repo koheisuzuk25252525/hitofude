@@ -68,6 +68,12 @@ h1 span{color:var(--acc)}
 .c.vis .n{background:transparent;color:#fff}
 .c .k{position:absolute;left:4px;top:2px;font-size:.5em;font-weight:700;color:var(--fg);opacity:.55;z-index:2;line-height:1;font-variant-numeric:tabular-nums}
 .c.head .k{opacity:1;color:var(--acc);font-size:.62em}
+.c.target{box-shadow:inset 0 0 0 3px var(--acc2)}
+.c.start::after{content:'ここから';position:absolute;bottom:1px;left:0;right:0;text-align:center;
+  font:700 9px/1.2 var(--font-body);color:var(--acc2)}
+.play-context{width:100%;max-width:560px;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;font-size:13px;line-height:1.5}
+#playLabel{color:var(--muted)}
+#nextClue{font-weight:700}
 #count{font-family:var(--font-display);font-weight:900;color:var(--fg);font-size:16px}
 #langtag{font-size:16px;min-width:1.2em}
 .c.bad{animation:shake .25s}
@@ -83,10 +89,10 @@ h1 span{color:var(--acc)}
 #svg .draw{stroke-dasharray:1000;stroke-dashoffset:1000;animation:draw 1.1s ease-out forwards}
 @keyframes draw{to{stroke-dashoffset:0}}
 #fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
-.done{opacity:0;transform:scale(.96)}
-.done.in{animation:rise .45s cubic-bezier(.2,1.3,.4,1) .35s forwards}
+.completion{opacity:0;transform:scale(.96)}
+.completion.in{animation:rise .45s cubic-bezier(.2,1.3,.4,1) .35s forwards}
 @keyframes rise{to{opacity:1;transform:scale(1)}}
-.done h2{animation:none}
+.completion h2{animation:none}
 .iconbtn{border:0;background:var(--pill);color:var(--fg);width:44px;height:44px;flex:0 0 44px;border-radius:999px;font-size:16px;cursor:pointer;line-height:1}
 .iconbtn[aria-pressed="false"]{opacity:.5}
 #tab-oni{flex:.55}
@@ -127,18 +133,22 @@ h1 span{color:var(--acc)}
 .hint{color:var(--muted);font-size:13px;text-align:center;max-width:440px;margin:0}
 .hint.compact{display:none}
 .top,.tabs,.bar{max-width:560px}
-.done{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+.completion{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
   background:color-mix(in srgb,var(--bg) 88%,transparent);border-radius:10px;z-index:5;text-align:center;padding:16px}
-.done h2{font-family:var(--font-display);font-weight:900;font-size:28px;margin:0;color:var(--acc)}
-.done p{margin:0;font-variant-numeric:tabular-nums}
-.done .row{display:flex;width:100%;max-width:360px;gap:8px;flex-wrap:wrap;justify-content:center}
-.done .row .btn{flex:1 1 calc(50% - 8px);min-height:48px}
+.completion h2{font-family:var(--font-display);font-weight:900;font-size:28px;margin:0;color:var(--acc)}
+.completion p{margin:0;font-variant-numeric:tabular-nums}
+#doneNote{font-size:13px;color:var(--muted);line-height:1.5}
+.textbtn{border:0;background:transparent;color:var(--fg);font:inherit;font-size:13px;min-height:44px;padding:8px 12px;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.review-actions{width:100%;max-width:560px;display:flex;gap:8px}
+.review-actions .btn{flex:1}
+.completion .row{display:flex;width:100%;max-width:360px;gap:8px;flex-wrap:wrap;justify-content:center}
+.completion .row .btn{flex:1 1 calc(50% - 8px);min-height:48px}
 .credits{max-width:560px;width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:12px;font-size:12px;color:var(--muted);padding-bottom:12px}
 .credits a{color:inherit;overflow-wrap:anywhere}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);
   background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
-@media (prefers-reduced-motion:reduce){.spin,.c.glow,.c.bad,.c.just,.c.hit .n,.c.win,#svg .head,#svg .draw{animation:none}.toast{transition:none}.done{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.spin,.c.glow,.c.bad,.c.just,.c.hit .n,.c.win,#svg .head,#svg .draw{animation:none}.toast{transition:none}.completion{opacity:1;transform:none}.completion.in{animation:none}#svg .draw{stroke-dashoffset:0}}
 </style>
 </head>
 <body>
@@ -160,6 +170,7 @@ h1 span{color:var(--acc)}
   <p class="hint" style="margin-top:6px">きょうの1問をクリアした日に色がつきます。連続日数がストリーク。</p>
 </div>
 <div class="banner" id="challenge" hidden></div>
+<div class="play-context"><span id="playLabel"></span><span id="nextClue"></span></div>
 <div class="boardwrap">
   <div class="board" id="board">
     <div class="cells" id="cells"></div>
@@ -171,19 +182,25 @@ h1 span{color:var(--acc)}
       <button class="btn" id="retryGeneration">同じ問題でもう一度</button>
       <button class="btn" id="leaveGeneration">ふつうで遊ぶ</button>
     </div>
-    <div class="done" id="done" hidden>
-      <h2>クリア！</h2>
+    <div class="completion" id="done" hidden>
+      <h2>ひと筆、完成！</h2>
+      <p id="doneNote"></p>
       <p id="doneText"></p>
       <div class="row">
-        <button class="btn primary" id="share">結果をコピー</button>
+        <button class="btn primary" id="next">もう一問</button>
+        <button class="btn" id="share">結果をコピー</button>
         <button class="btn" id="dare">対戦を挑む</button>
         <button class="btn" id="copyDare">リンクをコピー</button>
-        <button class="btn" id="next">つぎの問題</button>
       </div>
+      <button class="textbtn" id="viewPath">完成した線を見る</button>
     </div>
   </div>
 </div>
-<div class="bar">
+<div class="review-actions" id="reviewActions" hidden>
+  <button class="btn" id="showResult">結果に戻る</button>
+  <button class="btn primary" id="reviewNext">もう一問</button>
+</div>
+<div class="bar" id="playActions">
   <button class="btn" id="hint">ヒント <span id="hintLeft">3</span></button>
   <button class="btn" id="undo">ひとつ戻す</button>
   <button class="btn" id="clear">やり直す</button>
@@ -349,6 +366,7 @@ for(const ev of ['touchend','click','keydown'])document.addEventListener(ev,unlo
 
 // ---------- fx (confetti on canvas) ----------
 const FX={cv:null,cx:null,parts:[],raf:0,
+  stop(){cancelAnimationFrame(this.raf);this.raf=0;this.parts=[];if(this.cx)this.cx.clearRect(0,0,this.cv.width,this.cv.height)},
   burst(n=90){
     this.cv=this.cv||$('fx');const r=this.cv.getBoundingClientRect();this.cv.width=r.width*devicePixelRatio;this.cv.height=r.height*devicePixelRatio;
     this.cx=this.cv.getContext('2d');this.cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
@@ -380,13 +398,18 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 let genToken=0;
 function newGame(m,forcedSeed){
   mode=m;const tok=++genToken;
-  cancelGeneration();endGesture();clearHint();
+  cancelGeneration();endGesture();clearHint();FX.stop();
   seed=forcedSeed!==undefined?forcedSeed:(m==='daily'?todayKey():(Date.now()^Math.floor(Math.random()*1e9))>>>0);
   const [R,C]=SIZES[m];
   puz=null;route=[];finished=false;finalMs=null;drawing=false;activePointer=null;lastPointer=null;mistakes=0;hintsLeft=HINTS;hintsUsed=0;VOICE.stop();
   if(!(forcedSeed!==undefined&&rival&&rival.seed===seed))rival=null;
   $('challenge').hidden=!rival;if(rival)$('challenge').innerHTML=`⚔️ 対戦中：相手のタイム <strong>${fmt(rival.ms)}</strong> を超えろ`;
   $('done').hidden=true;$('done').classList.remove('in');
+  $('reviewActions').hidden=true;$('playActions').hidden=false;
+  $('instructions').hidden=false;
+  $('undo').disabled=false;$('clear').disabled=false;
+  $('playLabel').textContent=m==='easy'?'さくっと一問':LABEL[m];
+  $('nextClue').textContent='問題を準備中…';
   $('generationError').hidden=true;$('cells').replaceChildren();$('svg').replaceChildren();$('coach')?.remove();
   fitBoard();
   for(const b of document.querySelectorAll('.tab'))b.setAttribute('aria-selected',String(b.dataset.mode===m));
@@ -400,7 +423,7 @@ function newGame(m,forcedSeed){
     $('loading').hidden=false;
     return genAsync(R,C,diff,seed).then(apply).catch(()=>{
       if(tok!==genToken)return;
-      $('loading').hidden=true;$('generationError').hidden=false;syncHint();
+      $('loading').hidden=true;$('generationError').hidden=false;$('nextClue').textContent='もう一度お試しください';syncHint();
     });
   }
   $('loading').hidden=true;apply(makePuzzle(R,C,diff,mulberry32(seed)));return Promise.resolve();
@@ -463,6 +486,8 @@ function render(){
 }
 function drawRoute(opts={}){
   const {R,C}=puz;const svg=$('svg');
+  // Use only visible clues and the current step count; never reveal the solution here.
+  const next=Array.from(puz.clues.values()).filter(k=>k>route.length).sort((a,b)=>a-b)[0];
   const pts=route.map(([r,c])=>[(c+0.5)*100/C,(r+0.5)*100/R]);
   const w=Math.max(2.5,100/C*0.34);
   const acc=getComputedStyle(document.documentElement).getPropertyValue('--acc').trim()||'#e8553a';
@@ -473,10 +498,13 @@ function drawRoute(opts={}){
   const order=new Map(route.map(([r,c],i)=>[r+','+c,i+1]));const headKey=route.length?route[route.length-1].join(','):null;
   for(const d of $('cells').children){const key=d.dataset.r+','+d.dataset.c;const i=order.get(key);
     d.classList.toggle('vis',i!==undefined);d.classList.toggle('head',key===headKey);
+    d.classList.toggle('target',!finished&&puz.clues.get(key)===next);
+    d.classList.toggle('start',!route.length&&puz.clues.get(key)===1);
     let k=d.querySelector('.k');
     if(i!==undefined&&!puz.clues.has(key)){if(!k){k=document.createElement('span');k.className='k';d.appendChild(k)}k.textContent=i}
     else if(k)k.remove();}
   $('count').textContent=`${route.length}/${R*C}`;
+  $('nextClue').textContent=route.length===R*C?'すべてのマスが、一本の線に。':!route.length?'「1」からなぞってスタート':`次の数字 ${next} まで、あと ${next-route.length} マス`;
   if(mode==='tutorial')coach();
 }
 function cellAt(x,y){const el=document.elementFromPoint(x,y);return el&&el.closest('.c')}
@@ -503,20 +531,29 @@ function finish(){
   if(finished||!puz)return;
   finalMs=Math.max(0,Date.now()-t0);finished=true;clearInterval(timerId);
   const ms=finalMs;$('timer').textContent=fmt(ms);syncHint();
-  if(mode!=='tutorial'){const best=store.get('best:'+mode);if(best===null||ms<best){store.set('best:'+mode,ms);$('best').hidden=false;$('best').textContent='ベスト '+fmt(ms)}}
+  const best=store.get('best:'+mode);
+  const improved=typeof best==='number'&&ms<best;
+  if(mode!=='tutorial'){if(best===null||improved){store.set('best:'+mode,ms);$('best').hidden=false;$('best').textContent='ベスト '+fmt(ms)}}
   if(mode==='tutorial')store.set('tut',1);
   document.getElementById('coach')?.remove();
   if(mode==='daily')store.set('daily:'+seed,ms);
-  const perfect=(mistakes===0&&hintsUsed===0?'  ✨パーフェクト':`  ミス${mistakes}`)+(hintsUsed?`  💡${hintsUsed}`:'');
+  $('doneNote').textContent=mode==='tutorial'?'準備できました。さくっと一問へ。':improved?'自己ベストを更新！':hintsUsed===0?'ヒントなしで、つながりました。':'考えた道が、一本につながりました。';
+  const help=hintsUsed?`  ヒント ${hintsUsed}回`:'';
   let verdict='';
   if(rival){verdict=ms<rival.ms?`🏆 勝ち！ 相手 ${fmt(rival.ms)}`:ms===rival.ms?`🤝 引き分け ${fmt(rival.ms)}`:`😵 負け… 相手 ${fmt(rival.ms)}`}
-  $('doneText').innerHTML=`${LABEL[mode]} ${puz.R}×${puz.C}  ${fmt(ms)}${perfect}`+(verdict?`<br><span class="verdict">${verdict}</span>`:'');
+  $('doneText').innerHTML=`${LABEL[mode]} ${puz.R}×${puz.C}  ${fmt(ms)}${help}`+(verdict?`<br><span class="verdict">${verdict}</span>`:'');
   updateStreak();
   SFX.clear();buzz([30,40,30,40,80]);
   drawRoute({draw:true});
   const cells=$('cells').children;route.forEach(([r,c],i)=>{const d=cells[r*puz.C+c];d.classList.remove('win');d.style.animationDelay=(i*18)+'ms';void d.offsetWidth;d.classList.add('win')});
-  setTimeout(()=>FX.burst(110),250);setTimeout(()=>FX.burst(60),650);
-  $('next').textContent=mode==='tutorial'?'きょうの1問へ':'つぎの問題';$('dare').hidden=mode==='tutorial';$('copyDare').hidden=mode==='tutorial';
+  const completedToken=genToken;
+  if(!matchMedia('(prefers-reduced-motion: reduce)').matches){
+    for(const [delay,n] of [[250,110],[650,60]])setTimeout(()=>{if(genToken===completedToken&&finished)FX.burst(n)},delay);
+  }
+  $('next').textContent=mode==='tutorial'?'さくっと一問へ':'もう一問';$('reviewNext').textContent=$('next').textContent;
+  $('dare').hidden=mode==='tutorial';$('copyDare').hidden=mode==='tutorial';
+  $('undo').disabled=true;$('clear').disabled=true;
+  $('playActions').hidden=true;$('instructions').hidden=true;
   $('share').textContent=rival?'対戦結果を返信':'結果をコピー';
   const dn=$('done');dn.hidden=false;dn.classList.remove('in');void dn.offsetWidth;dn.classList.add('in');
 }
@@ -649,7 +686,18 @@ $('clear').onclick=()=>{if(finished||!puz)return;clearHint();route=[];drawRoute(
 $('new').onclick=()=>newGame(mode==='daily'||mode==='tutorial'?'medium':mode);
 $('hint').onclick=useHint;
 $('help').onclick=()=>newGame('tutorial');
-$('next').onclick=()=>newGame(mode==='tutorial'?'daily':mode==='daily'?'medium':mode);
+function playNext(){return newGame(mode==='tutorial'?'easy':mode==='daily'?'medium':mode)}
+$('next').onclick=playNext;$('reviewNext').onclick=playNext;
+$('viewPath').onclick=()=>{
+  if(!finished)return;
+  $('done').hidden=true;$('playActions').hidden=true;$('reviewActions').hidden=false;
+  $('showResult').focus({preventScroll:true});
+};
+$('showResult').onclick=()=>{
+  if(!finished)return;
+  $('done').hidden=false;$('reviewActions').hidden=true;
+  $('viewPath').focus({preventScroll:true});
+};
 async function copy(txt,okMsg){
   try{
     if(!navigator.clipboard?.writeText)throw new Error('clipboard unavailable');
@@ -732,7 +780,7 @@ function start(data){
   const m=/^#c-([emhdo])-(\d+)-(\d+)$/.exec(location.hash||'');
   if(m){const md={e:'easy',m:'medium',h:'hard',d:'daily',o:'oni'}[m[1]];rival={seed:+m[2],ms:+m[3]*1000};newGame(md,+m[2]);toast('対戦モード：相手のタイムに挑戦！');return}
   if(data&&data.seed&&data.mode){rival=data.rival||null;newGame(data.mode,data.seed).then(()=>{if(!puz)return;route=data.route||[];if(route.length)startTimer();drawRoute()})}
-  else newGame(store.get('tut')?'daily':'tutorial');
+  else newGame(store.get('tut')?'easy':'tutorial');
 }
 window.claude?.hot?.snapshot?.(()=>({mode,seed,route,rival}));
 window.claude?.hot?.ready?window.claude.hot.ready(start):start(window.claude?.hot?.data??{});

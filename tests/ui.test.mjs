@@ -86,8 +86,9 @@ try {
   ` });
   await cdp('Page.navigate', { url });
   await waitFor('typeof newGame === "function" && !!puz');
-  await evaluate('SFX.init=()=>{};SFX.resume=()=>{};FX.burst=()=>{}');
+  await evaluate('SFX.init=()=>{};SFX.resume=()=>{};globalThis.realBurst=FX.burst;FX.burst=()=>{}');
   check('existing stored preferences and best record preserved', await evaluate("[store.get('best:easy'),store.get('sound2'),store.get('voice2')]"), [45000, false, false]);
+  check('first visit still opens the tutorial', await evaluate('mode'), 'tutorial');
 
   for (const width of [375, 390, 430]) {
     await cdp('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -98,7 +99,7 @@ try {
       const issues = await evaluate(`(() => {
         const issues=[];
         if(document.documentElement.scrollWidth>innerWidth)issues.push('page overflow');
-        for(const e of document.querySelectorAll('.top,.stats,.tabs,.bar,.tab,.iconbtn,.bar .btn,.board')) {
+        for(const e of document.querySelectorAll('.top,.stats,.tabs,.bar,.tab,.iconbtn,.bar .btn,.board,.play-context')) {
           const r=e.getBoundingClientRect();
           if(r.left<0||r.right>innerWidth+1||e.scrollWidth>e.clientWidth+1)issues.push(e.id||e.className);
         }
@@ -122,6 +123,7 @@ try {
   const drag = async (a, b) => { await touch('touchStart', centers[a]); await touch('touchMove', centers[b]); await touch('touchEnd'); };
   await drag(0, 3);
   check('fast single move includes all four cells', await evaluate('route'), [[0,0],[0,1],[0,2],[0,3]]);
+  check('clue guidance counts remaining steps without revealing the route', await evaluate("[$('nextClue').textContent,document.querySelector('.c.target .n').textContent,document.querySelectorAll('.c.start').length]"), ['次の数字 7 まで、あと 3 マス','7',0]);
   await drag(3, 7); await drag(7, 4);
   check('fast reverse row respects numbered clues', await evaluate('route.length'), 8);
   await drag(4, 8); await drag(8, 11); await drag(11, 15); await drag(15, 12);
@@ -182,6 +184,11 @@ try {
     for(const p of puz.path.slice(1))tryStep(...p);
     globalThis.originalShare=shareText(true);globalThis.originalLink=challengeLink(finalMs);`);
   check('completion persists exact milliseconds', await evaluate("[finalMs,store.get('best:easy'),$('timer').textContent]"), [12345,12345,'0:12']);
+  check('completion recognizes a real personal best and prioritizes play', await evaluate("[$('doneNote').textContent,$('next').classList.contains('primary'),$('share').classList.contains('primary')]"), ['自己ベストを更新！',true,false]);
+  await evaluate("$('viewPath').click();tryStep(...puz.path[0]);$('undo').click();$('clear').click()");
+  check('viewing the completed line preserves route, time and record', await evaluate("[$('done').hidden,$('reviewActions').hidden,$('playActions').hidden,route.length,finalMs,store.get('best:easy'),document.activeElement.id]"), [true,false,true,25,12345,12345,'showResult']);
+  await evaluate("$('showResult').click()");
+  check('result can be reopened with sharing intact and obsolete play controls hidden', await evaluate("[$('done').hidden,$('reviewActions').hidden,$('playActions').hidden,document.activeElement.id,$('share').disabled,$('instructions').hidden]"), [false,true,true,'viewPath',false,true]);
   check('four completion buttons form two readable rows on a small phone', await evaluate(`(()=>{
     const bs=[...document.querySelectorAll('#done .row .btn')].filter(b=>!b.hidden);
     const rs=bs.map(b=>b.getBoundingClientRect());
@@ -257,8 +264,21 @@ try {
   check('daily date belongs to seed and stored daily record uses frozen result', await evaluate("[shareText().startsWith('ヒトフデ きょうの1問 2026/10/21'),store.get('daily:20261021')===finalMs]"), [true,true]);
   await evaluate(`Object.defineProperty(navigator,'share',{configurable:true,value:undefined});$('share').click()`);
   check('ordinary daily result remains copyable', await evaluate("[!rival,$('share').textContent,copied===shareText(false)]"), [true,'結果をコピー',true]);
+  await evaluate("store.set('daily:'+todayKey(),0);$('cal').click();renderCalendar()");
+  check('completed calendar dates stay visible in their grid', await evaluate(`(()=>{
+    const cell=document.querySelector('#calgrid .d.done');
+    const style=getComputedStyle(cell);return [style.position,style.opacity,cell.getBoundingClientRect().width>0];
+  })()`), ['static','1',true]);
+  await evaluate("$('cal').click()");
   await evaluate("newGame('easy',1001)");
   check('new game resets frozen result', await evaluate('finalMs'), null);
+  check('new game restores play controls and marks exactly the start clue', await evaluate("[$('reviewActions').hidden,$('playActions').hidden,$('undo').disabled,document.querySelectorAll('.c.start').length,document.querySelector('.c.target .n').textContent]"), [true,false,false,1,'1']);
+  await evaluate("newGame('tutorial');for(const p of puz.path)tryStep(...p);$('next').click()");
+  check('tutorial leads straight into an easy puzzle', await evaluate('[mode,route.length,rival]'), ['easy',0,null]);
+  await evaluate("tryStep(...puz.path[0]);$('undo').click()");
+  check('undo restores the start guidance', await evaluate("[route.length,document.querySelectorAll('.c.start').length,$('nextClue').textContent]"), [0,1,'「1」からなぞってスタート']);
+  await evaluate("$('tab-daily').click()");
+  check('daily puzzle is still one tap away with its original date seed', await evaluate('[mode,seed===todayKey()]'), ['daily',true]);
 
   check('credits are hidden until configured', await evaluate("$('credits').hidden"), true);
   check('configured credits use text and HTTPS links only', await evaluate(`
@@ -302,7 +322,61 @@ try {
   check('third hint remains visible at zero remaining', await evaluate("[hintsLeft,$('hint').disabled,!!document.querySelector('.hint-marker')]"), [0,true,true]);
   await evaluate("newGame('tutorial');useHint()");
   check('tutorial does not spend hints even when invoked directly', await evaluate('[hintsLeft,hintsUsed]'), [3,0]);
+
+  await evaluate(`store.set('best:easy',0);globalThis.bursts=0;FX.burst=()=>bursts++;
+    newGame('easy',1000);useHint();for(const p of puz.path)tryStep(...p);`);
+  check('a hinted clear is celebrated honestly and cannot overwrite a zero best', await evaluate("[$('doneNote').textContent,$('doneText').textContent.includes('ヒント 1回'),store.get('best:easy')]"), ['考えた道が、一本につながりました。',true,0]);
+  await evaluate('new Promise(r=>setTimeout(r,750))');
+  check('reduced motion avoids confetti and result animations', await evaluate("[bursts,getComputedStyle($('done')).animationName]"), [0,'none']);
+  check('reduced motion shows the entire completed line before any resize', await evaluate("getComputedStyle(document.querySelector('#svg polyline')).strokeDashoffset"), '0px');
+
+  for (const width of [375,390,430]) {
+    await cdp('Emulation.setDeviceMetricsOverride', { width, height: 844, deviceScaleFactor: 1, mobile: true });
+    for (const theme of ['light','dark']) {
+      await evaluate(`document.documentElement.dataset.theme='${theme}';$('showResult').click();$('appScroll').scrollTo(0,0)`);
+      check(`${width}px ${theme}: result text and controls fit inside the board`, await evaluate(`(()=>{
+        const box=$('board').getBoundingClientRect();
+        const els=[...document.querySelectorAll('#done h2,#done p,#done button')].filter(e=>!e.hidden);
+        return els.every(e=>{const r=e.getBoundingClientRect();return r.left>=box.left&&r.right<=box.right&&r.top>=box.top&&r.bottom<=box.bottom&&e.scrollWidth<=e.clientWidth+1})
+          && els.filter(e=>e.tagName==='BUTTON').every(e=>e.getBoundingClientRect().height>=44);
+      })()`), true);
+      if (process.env.UI_SCREENSHOT_DIR) {
+        const screenshot=await cdp('Page.captureScreenshot',{format:'png'});
+        await writeFile(join(process.env.UI_SCREENSHOT_DIR,`result-${width}-${theme}.png`),Buffer.from(screenshot.data,'base64'));
+      }
+      await evaluate("$('viewPath').click()");
+      check(`${width}px ${theme}: completed line and return controls are visible`, await evaluate(`(()=>{
+        const rect=$('reviewActions').getBoundingClientRect();
+        return $('done').hidden&&!!document.querySelector('#svg polyline')&&rect.left>=0&&rect.right<=innerWidth&&rect.bottom<=innerHeight;
+      })()`), true);
+      if (process.env.UI_SCREENSHOT_DIR) {
+        const screenshot=await cdp('Page.captureScreenshot',{format:'png'});
+        await writeFile(join(process.env.UI_SCREENSHOT_DIR,`completed-line-${width}-${theme}.png`),Buffer.from(screenshot.data,'base64'));
+      }
+    }
+  }
+  await evaluate("$('reviewNext').click()");
+  check('another puzzle from line review resets review and completion state', await evaluate("[mode,finished,route.length,finalMs,$('reviewActions').hidden,$('playActions').hidden]"), ['easy',false,0,null,true,false]);
+  await evaluate('realBurst.call(FX,10)');
+  check('confetti is active before the next-puzzle cleanup test', await evaluate('FX.parts.length>0&&FX.raf!==0'), true);
+  await evaluate("newGame('easy',1000)");
+  check('starting another puzzle clears active confetti and restores instructions', await evaluate("[FX.parts.length,FX.raf,$('instructions').hidden]"), [0,0,false]);
   await cdp('Emulation.setEmulatedMedia', { features: [] });
+  await evaluate("newGame('easy',1000);for(const p of puz.path)tryStep(...p);newGame('easy',1001)");
+  await evaluate('new Promise(r=>setTimeout(r,750))');
+  check('a new puzzle cannot receive delayed confetti from the previous result', await evaluate('bursts'), 0);
+  await cdp('Emulation.setDeviceMetricsOverride', { width:375,height:667,deviceScaleFactor:1,mobile:true });
+  await cdp('Emulation.setEmulatedMedia', { features:[{name:'prefers-reduced-motion',value:'reduce'}] });
+  await evaluate(`globalThis.layoutNow=Date.now;const clock=Date.now();Date.now=()=>clock;
+    rival={seed:1000,ms:7654000};newGame('hard',1000);tryStep(...puz.path[0]);
+    Date.now=()=>clock+7425000;hintsUsed=3;for(const p of puz.path.slice(1))tryStep(...p);Date.now=layoutNow;`);
+  check('long challenge results fit the smallest supported phone', await evaluate(`(()=>{
+    const box=$('board').getBoundingClientRect();
+    return [...document.querySelectorAll('#done h2,#done p,#done button')].every(e=>{
+      const r=e.getBoundingClientRect();return r.top>=box.top&&r.bottom<=box.bottom&&e.scrollWidth<=e.clientWidth+1;
+    });
+  })()`), true);
+  await cdp('Emulation.setEmulatedMedia', { features:[] });
 
   await evaluate('globalThis.RealWorker=Worker');
   for (const failure of ['error', 'messageerror', 'constructor', 'timeout']) {
@@ -324,6 +398,9 @@ try {
   await evaluate(`(async()=>{globalThis.Worker=class{postMessage(){} terminate(){}};
     const old=newGame('oni',1000);await newGame('easy',1001);await old;globalThis.Worker=RealWorker;})()`);
   check('superseded generation cannot overwrite newer game or expose error', await evaluate("[mode,seed,puz.path.length,$('loading').hidden,$('generationError').hidden]"), ['easy',1001,25,true,true]);
+  await cdp('Page.navigate', { url });
+  await waitFor('typeof puz !== "undefined" && !!puz');
+  check('return visits immediately open an easy puzzle without a menu', await evaluate('[mode,puz.path.length,route.length]'), ['easy',25,0]);
   await cdp('Page.navigate', { url: url + '?legacy-link#c-e-1000-12' });
   await waitFor('typeof puz !== "undefined" && !!puz');
   check('legacy challenge URL loads expected opponent and seed', await evaluate('[mode,seed,rival.ms,puz.path.length]'), ['easy',1000,12000,25]);
