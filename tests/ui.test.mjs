@@ -147,6 +147,27 @@ try {
   `);
   check('coalesced corner samples retain the actual turn and cancel releases input', await evaluate('[route.length,activePointer,lastPointer]'), [5,null,null]);
 
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 450, deviceScaleFactor: 1, mobile: true });
+  await evaluate("newGame('tutorial');document.body.style.top='1px';window.scrollTo(0,100)");
+  const departure = await evaluate(`(()=>{const r=$('cells').children[0].getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,scroll:scrollY}})()`);
+  assert(departure.scroll > 0, 'scroll test needs a nonzero departure offset');
+  await touch('touchStart', { x: departure.x, y: departure.y });
+  check('touch tracing locks page without moving the board', await evaluate(`(()=>{const r=$('cells').children[0].getBoundingClientRect();return [document.body.style.position,document.documentElement.style.overflow,Math.abs(r.y+r.height/2-${departure.y})<1]})()`), ['fixed','hidden',true]);
+  check('touchmove cancels browser panning', await evaluate(`(()=>{const e=new Event('touchmove',{cancelable:true,bubbles:true});board.dispatchEvent(e);return e.defaultPrevented})()`), true);
+  await touch('touchEnd');
+  check('touch end restores styles and prior scroll offset', await evaluate('[document.body.style.position,document.body.style.top,document.documentElement.style.overflow,scrollY,pageScrollLock]'), ['', '1px', '', departure.scroll, null]);
+  for (const reason of ['cancel', 'blur', 'new-game']) {
+    await touch('touchStart', { x: departure.x, y: departure.y });
+    if (reason === 'cancel') await touch('touchCancel');
+    else if (reason === 'blur') await evaluate("window.dispatchEvent(new Event('blur'))");
+    else await evaluate("newGame('tutorial')");
+    check(`${reason} releases scroll lock and input state`, await evaluate('[pageScrollLock,activePointer,drawing,document.body.style.position]'), [null,null,false,'']);
+    if (reason !== 'cancel') await touch('touchEnd');
+  }
+  check('touchmove outside a game gesture is not cancelled', await evaluate(`(()=>{const e=new Event('touchmove',{cancelable:true,bubbles:true});board.dispatchEvent(e);return e.defaultPrevented})()`), false);
+  await evaluate("document.body.style.top='';window.scrollTo(0,0)");
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 1, mobile: true });
+
   await evaluate(`globalThis.originalNow=Date.now;globalThis.testNow=100000;Date.now=()=>testNow;
     newGame('easy',1000);tryStep(...puz.path[0]);testNow+=12345;
     for(const p of puz.path.slice(1))tryStep(...p);
