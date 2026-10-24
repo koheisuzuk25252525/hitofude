@@ -127,6 +127,7 @@ struct GameView: View {
         .sheet(isPresented: $showsChallenge) { challengeSheet }
         .sheet(isPresented: $showsHelp) {
             NavigationStack {
+                ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     Text("ひと筆で、ぜんぶつなごう").font(.title2.bold())
                     Text("1のマスから、上下左右になぞります。ななめには進めません。")
@@ -136,9 +137,14 @@ struct GameView: View {
                         showsHelp = false
                         Task { await game.load(.tutorial) }
                     }.buttonStyle(.borderedProminent)
+                    Link("プライバシーポリシー", destination: URL(string: "https://koheisuzuk25252525.github.io/hitofude/privacy.html")!)
+                    Link("サポート・お問い合わせ", destination: URL(string: "https://koheisuzuk25252525.github.io/hitofude/support.html")!)
+                    Text("バージョン \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")（\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")）")
+                        .font(.footnote).foregroundStyle(.secondary)
                     Spacer()
                 }
                 .padding(24)
+                }
                 .navigationTitle("あそびかた")
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsHelp = false } } }
             }.presentationDetents([.medium, .large])

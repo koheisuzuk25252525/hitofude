@@ -86,7 +86,11 @@ enum GameMode: String, CaseIterable, Identifiable, Codable, Sendable {
     }
     static func dailySeed(date: Date = Date(), calendar: Calendar = PlayProgress.calendar()) -> UInt32 {
         let parts = calendar.dateComponents([.year, .month, .day], from: date)
-        return UInt32((parts.year ?? 2026) * 10000 + (parts.month ?? 1) * 100 + (parts.day ?? 1))
+        let year = parts.year ?? 2026
+        let month = parts.month ?? 1
+        let day = parts.day ?? 1
+        let value = year * 10000 + month * 100 + day
+        return UInt32(value)
     }
 }
 

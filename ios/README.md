@@ -24,7 +24,7 @@ iOS 17以降、iPhone / iPad向けのネイティブアプリです。画面はS
 - バックグラウンド／非アクティブ時の一時停止（中断時間を除外）
 - 同じ問題・相手のタイムを共有する挑戦リンク、勝敗表示、再挑戦
 
-日付seedは端末のローカル日付を使い、Web版と同じYYYYMMDDです。同じseed・難易度ではWeb版と同じ問題になります。Web版の音声読み上げ、効果音、カレンダー表示は含めていません。Web版のlocalStorageは引き継ぎません。アプリアイコンやApp Store配信用の設定は配布前に追加してください。
+日付seedは端末のローカル日付を使い、Web版と同じYYYYMMDDです。同じseed・難易度ではWeb版と同じ問題になります。Web版の音声読み上げ・効果音は含めていません。Web版のlocalStorageは引き継ぎません。AppIconとプライバシーマニフェストは同梱しています。署名と配布には所有者の設定が必要です。詳細は [TESTFLIGHT.md](TESTFLIGHT.md) を参照してください。
 
 ## 起動してすぐ1問
 
@@ -54,9 +54,9 @@ iOS 17以降、iPhone / iPad向けのネイティブアプリです。画面はS
 
 ## テスト
 
-Xcodeで **⌘U**。XCTestは生成器17ケースの一意解・再現性、練習問題の不正操作・クリア・保存、ヒントと取り消し、日付seed、保存・復元と中断時間の除外、壊れた保存データ、不正リンク、対戦の勝敗を検証します。
+Xcodeで **⌘U**。XCTestは生成器17ケースの一意解・再現性、練習問題の不正操作・クリア・保存、ヒントの重複消費・復元・経路修正、取り消し、日付seed、保存・復元と中断時間の除外、クリア24時間後の記録・共有の不変性、壊れた保存データ、不正リンク、対戦の勝敗、軌跡補間、生成失敗と時間上限を検証します。
 
-実機での具体的な確認項目と結果記録欄は [DEVICE_TESTING.md](DEVICE_TESTING.md) を参照してください。GitHub Actionsの **iOS tests** でもmacOS上のSimulatorでビルドとXCTestを実行します（このブランチへのiOS変更push、PR、手動実行）。これは実機テストとは別です。
+実機での具体的な確認項目と結果記録欄は [DEVICE_TESTING.md](DEVICE_TESTING.md) を参照してください。GitHub Actionsの **iOS tests** でもmacOS上のSimulatorでビルドとXCTestを実行します（mainおよび旧iOSブランチへのiOS変更push、PR、手動実行）。これは実機テストとは別です。
 
 コマンドラインではMac上で、まず利用可能なSimulatorを確認します。
 
@@ -73,8 +73,14 @@ node tests/generator.test.mjs
 node tests/native-generator.test.mjs
 ```
 
-このクラウド環境にはXcode・Swiftがないため、iOSビルド、XCTest、Simulator、iPhone実機での操作・VoiceOver確認は未実施です。Nodeでの検証をiOS実行成功として扱わないでください。
+このLinuxクラウド環境にはXcode・Swiftがありません。iOSビルド・XCTest・署名なしRelease archiveはGitHub ActionsのmacOSで検証します。最新コミットのチェック結果を確認してください。iPhone実機での操作・VoiceOver・署名付きのアップロードは別途必要です。
 
 ## 生成器を更新するとき
 
 `Resources/Generator.js` は `index.html` のseeded RNG / generator部分を同じ動作のまま同梱し、末尾の `nativePuzzle` でSwiftにJSONを返します。生成器を変更する場合は両方を同期し、上記NodeテストとXCTestを実行してください。生成器はJavaScriptCoreのローカルコンテキスト内で完結し、インターネット接続は不要です。
+
+## 今回の操作改善
+
+ヒント表示中の重複消費を防ぎ、間違った経路を戻した同じ操作で次のマスに順番の目印を表示します。通常の案内は公開済みの数字と現在の歩数だけから計算します。完成した盤面は結果の上に残り、使わなくなった操作は隠します。「もう一問」は同じ難易度（練習後はeasy、daily後はmedium）へ進みます。ヘルプ・カレンダー・対戦入力の表示中もタイマーを止めます。
+
+生成には協調的な20秒の上限があり、時間切れでは正解を妥協して作らず、同じseedの再試行またはeasyへ戻れます。成功時の乱数順・問題内容はWebと同じです。
