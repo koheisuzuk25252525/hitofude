@@ -29,3 +29,7 @@ UI_SCREENSHOT_DIR=/tmp/hitofude-review node tests/ui.test.mjs
 ```
 
 制作者名・作品一覧リンクの設定、OGP画像の更新、実機確認は [公開チェックリスト](docs/RELEASE_CHECKS.md) を参照してください。
+
+## iPhone / iPad版
+
+SwiftUI版は `ios/Hitofude.xcodeproj` をXcodeで開きます。[起動・保存・対戦の説明](ios/README.md)、[TestFlight配布手順](ios/TESTFLIGHT.md)、[実機チェック](ios/DEVICE_TESTING.md) を参照してください。Web版と問題のシードを共有しますが、保存データは別です。

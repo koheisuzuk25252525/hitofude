@@ -1,0 +1,77 @@
+name: iOS tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, codex/hitofude-swiftui-ios]
+    paths: ['ios/**', 'tests/native-generator.test.mjs', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', 'tests/native-generator.test.mjs', '.github/workflows/ios.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: Check Web and native puzzle compatibility
+        run: node tests/native-generator.test.mjs
+      - name: Select an installed iPhone Simulator
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/simulators.json"
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, os
+          with open(os.path.join(os.environ['RUNNER_TEMP'], 'simulators.json')) as file:
+              data = json.load(file)
+          devices = [device for runtime, devices in data['devices'].items()
+                     if '.iOS-' in runtime for device in devices
+                     if device['name'].startswith('iPhone') and device.get('isAvailable')]
+          if not devices:
+              raise SystemExit('No installed iPhone Simulator found')
+          print('HITOFUDE_SIMULATOR_ID=' + devices[0]['udid'])
+          PY
+      - name: Build and run XCTest
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
+            -destination "platform=iOS Simulator,id=$HITOFUDE_SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/HitofudeTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO test 2>&1 | tee "$RUNNER_TEMP/ios-test.log"
+      - name: Build an unsigned Release archive
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Hitofude.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO archive 2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
+          test -f "$RUNNER_TEMP/Hitofude.xcarchive/Products/Applications/Hitofude.app/PrivacyInfo.xcprivacy"
+          test -f "$RUNNER_TEMP/Hitofude.xcarchive/Products/Applications/Hitofude.app/Assets.car"
+      - name: Report build errors
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          for path in pathlib.Path(os.environ['RUNNER_TEMP']).glob('ios-*.log'):
+              for line in path.read_text(errors='replace').splitlines():
+                  if 'error:' in line or 'failed' in line.lower():
+                      message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print('::error::' + message[:1500])
+          PY
+      - name: Save XCTest results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hitofude-XCTest
+          path: ${{ runner.temp }}/HitofudeTests.xcresult
+          if-no-files-found: ignore
