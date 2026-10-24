@@ -345,6 +345,7 @@ private struct BoardView: View {
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
     @State private var trace = BoardTrace()
+    @GestureState private var isTracing = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -353,32 +354,7 @@ private struct BoardView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 18).fill(palette.cell)
                 ForEach(0..<(puzzle.size * puzzle.size), id: \.self) { index in
-                    let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
-                    let order = game.route.firstIndex(of: cell).map { $0 + 1 }
-                    let clue = puzzle.clues[cell]
-                    Button { game.step(cell) } label: {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(game.highlighted == cell ? palette.accent.opacity(0.35) :
-                                      order != nil ? palette.accent.opacity(0.16) : palette.soft.opacity(0.5))
-                            if let number = clue ?? order {
-                                Text("\(number)")
-                                    .font(.system(size: max(14, step * 0.38), weight: clue != nil ? .bold : .regular, design: .rounded))
-                                    .foregroundStyle(palette.foreground)
-                            }
-                            if game.highlighted == cell {
-                                RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, lineWidth: 3)
-                                VStack { HStack { Spacer(); Text("\(game.route.count + 1)").font(.caption2.bold()).padding(3).background(palette.accent, in: Capsule()).foregroundStyle(palette.background) }; Spacer() }
-                            } else if clue == game.nextClue {
-                                RoundedRectangle(cornerRadius: 8).strokeBorder(palette.foreground.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [3]))
-                            }
-                        }
-                        .frame(width: max(1, step - 6), height: max(1, step - 6))
-                    }
-                    .buttonStyle(.plain)
-                    .position(center(of: cell, step: step))
-                    .accessibilityLabel("\(cell.row + 1)行\(cell.column + 1)列、" + (clue.map { "数字\($0)" } ?? "空白") + (order.map { "、\($0)番目に通過" } ?? ""))
-                    .accessibilityHint(game.highlighted == cell ? "ヒント：次に進むマス" : clue == game.nextClue ? "次に目指す数字" : "")
+                    cellView(index: index, step: step)
                 }
                 Path { path in
                     for (index, cell) in game.route.enumerated() {
@@ -394,14 +370,50 @@ private struct BoardView: View {
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.foreground, lineWidth: 2).allowsHitTesting(false))
             .contentShape(Rectangle())
             .highPriorityGesture(DragGesture(minimumDistance: 0)
+                .updating($isTracing) { _, state, _ in state = true }
                 .onChanged { value in
                     for cell in trace.cells(to: value.location, width: width, size: puzzle.size) { game.step(cell) }
                 }
                 .onEnded { _ in trace.reset() })
+            .onChange(of: isTracing) { _, tracing in if !tracing { trace.reset() } }
             .onChange(of: game.isPaused) { _, _ in trace.reset() }
             .onChange(of: game.seed) { _, _ in trace.reset() }
             .onChange(of: width) { _, _ in trace.reset() }
         }
+    }
+
+    private func cellView(index: Int, step: CGFloat) -> some View {
+        let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
+        let order = game.route.firstIndex(of: cell).map { $0 + 1 }
+        let clue = puzzle.clues[cell]
+        let clueLabel = clue.map { "数字\($0)" } ?? "空白"
+        let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
+        let isTarget = clue != nil && clue == game.nextClue
+        let isHint = game.highlighted == cell
+        let hintLabel = isHint ? "ヒント：次に進むマス" : isTarget ? "次に目指す数字" : ""
+        return Button { game.step(cell) } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isHint ? palette.accent.opacity(0.35) :
+                          order != nil ? palette.accent.opacity(0.16) : palette.soft.opacity(0.5))
+                if let number = clue ?? order {
+                    Text("\(number)")
+                        .font(.system(size: max(14, step * 0.38), weight: clue != nil ? .bold : .regular, design: .rounded))
+                        .foregroundStyle(palette.foreground)
+                }
+                if isHint {
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, lineWidth: 3)
+                    VStack { HStack { Spacer(); Text("\(game.route.count + 1)").font(.caption2.bold()).padding(3).background(palette.accent, in: Capsule()).foregroundStyle(palette.background) }; Spacer() }
+                } else if isTarget {
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(palette.foreground.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [3]))
+                }
+            }
+            .frame(width: max(1, step - 6), height: max(1, step - 6))
+        }
+        .buttonStyle(.plain)
+        .position(center(of: cell, step: step))
+        .accessibilityLabel("\(cell.row + 1)行\(cell.column + 1)列、\(clueLabel)\(orderLabel)")
+        .accessibilityHint(hintLabel)
     }
 
     private func center(of cell: Cell, step: CGFloat) -> CGPoint {
