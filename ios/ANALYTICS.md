@@ -1,0 +1,68 @@
+# Firebaseでプレイ状況を見る
+
+## 最初に所有者が行うこと
+
+1. [Firebase Console](https://console.firebase.google.com/)へGoogleアカウントでログインし、ヒトフデ用のプロジェクトを作成する。Google Analyticsを有効にし、管理するAnalyticsアカウント／プロパティを選ぶ。今回の計測にFirestore・サーバー構築・有料プランへの変更は不要。
+2. iOSアプリを追加する。Bundle IDは、実際に配布するXcodeのHitofudeターゲットの **Signing & Capabilities → Bundle Identifier** と完全にそろえる。`com.example.hitofude` は開発用なので、本番用IDを決めてから登録する。別のIDに変える場合は対応するFirebaseアプリも登録し直す。
+3. **GoogleService-Info.plist** をダウンロードする。ファイル名を変えず、XcodeのHitofudeグループへ追加し、「Copy items if needed」とHitofudeターゲットを選ぶ。Build Phases → Copy Bundle Resourcesに含まれることを確認する。Firebase SDKはこのPRのSwift Package設定から取得するので、二重に追加しない。
+4. この設定ファイルはgitignore対象。所有者のプロジェクト設定はこのPRには入っていない。設定ファイルにはアプリを識別する情報があるが、サービスアカウントの秘密鍵を代わりに入れてはいけない。CIや公開リポジトリへ管理者資格情報を登録する必要もない。
+5. アプリの「ほかの遊び方・記録」→「プレイ状況の計測」で、自分のテスト端末の設定をオンにする。初期設定はオフ。設定ファイルがない、またはBundle IDが違う場合は有効にできないが、ゲームは動く。
+
+SDKはXcode 16系との互換性を保つためFirebase iOS SDK 12.4.0に固定。`FirebaseAnalyticsCore` と `FirebaseCore` のみをリンクし、広告ID用の `FirebaseAnalyticsIdentitySupport` は追加しない。SDK更新時はプライバシーマニフェストとCIも再確認する。
+
+## データが届くか確認する
+
+1. Xcode → Product → Scheme → Edit Scheme → Run → Argumentsに、テスト時だけ `-FIRDebugEnabled` を追加する。
+2. FirebaseのAnalytics **DebugView**を開く。アプリで計測をオンにし、新しい問題を開く→1手進む→ヒント→ホームへ移動→戻る→クリアを試す。
+3. 下表のイベントとパラメータを確認する。設定前／協力オフの操作は後からまとめて送られない。
+4. メニューを開いた中断は `reason=menu`、アプリが非アクティブになった中断は `reason=background` として確認する。通知センターや一時的な非アクティブもbackgroundに含むため、終了理由とは断定しない。
+5. オフにして新しい問題で遊び、その操作の独自イベントが新たに送られないことを確認する。すでに送信済みのイベントが遅れて表示されることとは区別する。
+6. 確認後は起動引数を削除する。通常のレポートは即時反映ではなく、24〜48時間程度かかることがある。DebugView用のデータだけで本番の利用傾向を判断しない。
+
+**このPRの自動テストはSDKとの接続コード・同意の制御・イベント内容を確認する。所有者のFirebaseへの実データ到達は、設定ファイル追加後のこの手順で確認する必要がある。**
+
+## 記録するイベント
+
+| イベント | タイミング・意味 |
+|---|---|
+| `puzzle_ready` | 生成に成功し、遊べる問題を用意した |
+| `puzzle_start` | その挑戦で最初の有効な1手、または最初のヒント。1回のみ |
+| `hint_used` | ヒントが実際に1回消費された。同じ目印の連打は数えない |
+| `puzzle_complete` | 全マスをつないだ。確定した時間・進捗100を使う |
+| `puzzle_leave` | 未クリアの問題から別の問題の生成へ切り替えた。アプリ終了の意味ではない |
+| `puzzle_restart` | 開始済み・未クリアの同じ問題を「やり直す」で初期化した |
+| `puzzle_pause` | 操作できる状態から中断した。menuからbackgroundへの移行も記録 |
+| `puzzle_resume` | 中断後にアクティブなプレイ画面へ戻った |
+| `puzzle_restored` | 未クリアの保存問題を復元した。新規開始として二重計上しない |
+| `puzzle_generation_failed` | 問題を生成できなかった |
+
+共通パラメータ：`mode`（難易度）、`is_challenge`（0/1）、`progress_bucket`（0,10,…100%）、`elapsed_seconds`（中断を除いた秒数）、`hints_used`、`started`（0/1）、`completed`（0/1）、`attempt_id`（一回の挑戦を区別するランダムID）。中断・復帰・切り替えには `reason` も付く。
+
+`attempt_id` は保存復元で維持し、やり直し／別の問題では更新する。旧保存データにも対応する。問題のseed・正解経路・指の全軌跡・自由記述の感想は自動計測に送らない。Firebaseは別途インストール識別子や標準イベントを扱うため、完全な匿名計測とは説明しない。
+
+## 管理画面で何を見るか
+
+Analyticsの管理画面で、必要なパラメータをイベントスコープのカスタムディメンションとして登録する。まず `mode`、`reason`、`progress_bucket`、`started`、`completed`、`is_challenge` を使う。数値の平均を見たい場合は `elapsed_seconds` と `hints_used` をカスタム指標として登録する。登録前のデータが通常レポートへ遡って反映されるとは限らない。
+
+- **始める前の中断**：`puzzle_pause` を `started=0`、`reason=background` で絞る。操作が分からなかった可能性を、感想や実機観察と合わせて調べる。
+- **途中の詰まり**：`puzzle_pause` と `puzzle_leave` を難易度・進捗・ヒント数で比較する。繰り返し中断した人もいるので、イベント回数と利用者数を混同しない。
+- **一問の達成**：`puzzle_start → puzzle_complete` のファネルや経路探索を見る。通常のGAファネルは利用者単位で、別の問題のイベントが結びつくこともある。「厳密な問題別クリア率」とは扱わない。
+- **また開いたか**：Analyticsのリテンションと、`puzzle_resume`／`puzzle_restored`を確認する。クリア後に閉じる行動は失敗扱いしない。
+
+問題単位の厳密な集計が必要になったら、別途BigQuery連携などで `attempt_id` ごとの時系列を集計する。`attempt_id` は種類が多いため、通常のカスタムディメンションには登録しない。このPRではBigQuery・有料の集計処理・ダッシュボードの自動作成は行わない。
+
+「戻らなかった」は観測期間を決めた推定。OS強制終了、通信失敗、同意オフではデータが欠ける。途中で計測をオンにした人は開始イベントがないこともある。利用者全員や、やめた理由そのものが分かる仕組みではない。
+
+## 同意・公開前の設定
+
+- 初期オフ、同意するまでFirebaseを初期化しない。未設定でもゲームは動く。オフ時の操作を独自キューに残さない。
+- 同意後も広告ストレージ・広告ユーザーデータ・広告パーソナライズは拒否する。IDFV収集と自動画面レポートもInfo.plistで無効にする。広告連携、Googleシグナルなどを管理画面で勝手に有効化しない。
+- オフにするとSDKの収集を停止し、端末側Analyticsデータをリセットする。既に送ったデータのサーバー削除ではない。ゲームの保存データは残す。
+- Analyticsのユーザー／イベントデータ保持期間はまず2か月を推奨。管理者は必要な人だけにし、Google側のデータ共有設定も確認する。
+- `privacy.html` とApp Store Connectのプライバシー申告を更新する。任意参加でも「データ収集なし」とは申告しない。識別子・製品操作・おおよその位置など、実際のSDK設定とXcodeのプライバシーレポートを照合する。
+
+## 追加した報告機能と参考
+
+「ほかの遊び方・記録」→「不具合・感想を送る」で、内容の分類と文章を入力し、問題番号・難易度・バージョン・OS・進捗を添えた報告文を作る。共有／コピー、または公開GitHub Issueの作成画面へ進める。送信・投稿は利用者が行い、報告内容をAnalyticsへ自動送信しない。
+
+参考：[Simon Tatham's Puzzles for Androidの貢献・不具合報告案内](https://github.com/chrisboyle/sgtpuzzles#readme)、そこで紹介されている[不具合報告の書き方](https://www.chiark.greenend.org.uk/~sgtatham/bugs.html)。再現に必要な情報を添える考え方を採用した。コードや画像は流用していない。アプリ自体の実機比較プレイは未実施。

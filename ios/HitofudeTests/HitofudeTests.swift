@@ -606,6 +606,24 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
+    func testAnalyticsCapturesLeavingBeforeFirstMove() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let recorder = TestPlayRecorder()
+        let game = GameModel(defaults: defaults, analytics: recorder)
+        await game.load(.tutorial)
+        game.setActive(false)
+        let pause = try XCTUnwrap(recorder.events.first { $0.0 == .pause }?.1)
+        XCTAssertEqual(pause["started"] as? Int, 0)
+        XCTAssertEqual(pause["progress_bucket"] as? Int, 0)
+        XCTAssertFalse(recorder.events.contains { $0.0 == .start })
+        game.setActive(true)
+        await game.load(.easy, seed: 1000)
+        XCTAssertEqual(recorder.events.filter { $0.0 == .leave }.count, 1)
+    }
+
+    @MainActor
     func testAnalyticsAttemptSurvivesRestoreAndOldSaveRemainsCompatible() async throws {
         let name = "hitofude-tests-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))

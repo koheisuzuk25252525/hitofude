@@ -62,7 +62,7 @@ final class GameModel: ObservableObject {
     }
 
     func load(_ selected: GameMode, seed explicitSeed: UInt32? = nil, rival opponent: Challenge? = nil) async {
-        if puzzle != nil, startedAt != nil, !isFinished { record(.leave, reason: "another_puzzle") }
+        if puzzle != nil, !isFinished { record(.leave, reason: "another_puzzle") }
         let id = UUID()
         requestID = id
         rival = opponent
@@ -179,7 +179,7 @@ final class GameModel: ObservableObject {
             "is_challenge": rival == nil ? 0 : 1,
             "progress_bucket": min(10, route.count * 10 / total) * 10,
             "elapsed_seconds": Int(min(31_536_000, max(0, elapsed(at: now())))),
-            "hints_used": 3 - hintsLeft, "completed": isFinished ? 1 : 0
+            "hints_used": 3 - hintsLeft, "started": startedAt == nil ? 0 : 1, "completed": isFinished ? 1 : 0
         ]
         if let reason { parameters["reason"] = reason }
         analytics?.record(event, parameters: parameters)
@@ -199,12 +199,12 @@ final class GameModel: ObservableObject {
     func setActive(_ active: Bool, reason: String = "background") {
         let wasActive = !isPaused
         if !active {
-            if wasActive || pauseReason != reason { pauseReason = reason; if startedAt != nil { record(.pause, reason: reason) } }
+            if wasActive || pauseReason != reason { pauseReason = reason; if puzzle != nil { record(.pause, reason: reason) } }
             accumulated = elapsed(at: now())
             segmentStart = nil
             isPaused = true
         } else {
-            if !wasActive, startedAt != nil { record(.resume, reason: pauseReason) }
+            if !wasActive, puzzle != nil { record(.resume, reason: pauseReason) }
             registerVisit()
             isPaused = false
             if startedAt != nil, !isFinished, segmentStart == nil { segmentStart = now() }
