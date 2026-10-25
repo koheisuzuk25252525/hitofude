@@ -525,6 +525,16 @@ final class HitofudeTests: XCTestCase {
         XCTAssertNotNil(result?.toString())
     }
 
+    func testBundledAnalyticsDefaultsDisableAutomaticCollection() throws {
+        for key in ["FIREBASE_ANALYTICS_COLLECTION_ENABLED", "GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED",
+                    "FirebaseAutomaticScreenReportingEnabled", "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS"] {
+            let value = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: key), key)
+            if let number = value as? NSNumber { XCTAssertFalse(number.boolValue, key) }
+            else if let string = value as? NSString { XCTAssertFalse(string.boolValue, key) }
+            else { XCTFail("Unexpected setting type: \(key)") }
+        }
+    }
+
     @MainActor
     func testAnalyticsRequiresOptInAndStopsImmediatelyWhenDisabled() throws {
         let name = "hitofude-tests-\(UUID())"

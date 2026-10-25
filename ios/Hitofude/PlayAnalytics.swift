@@ -14,7 +14,8 @@ protocol AnalyticsClient {
 @MainActor
 private final class FirebaseAnalyticsClient: AnalyticsClient {
     private var options: FirebaseOptions? {
-        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+              let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
               let options = FirebaseOptions(contentsOfFile: path),
               options.bundleID == Bundle.main.bundleIdentifier else { return nil }
         return options

@@ -282,7 +282,7 @@ final class GameModel: ObservableObject {
             defaults.removeObject(forKey: "hitofude.session.v1")
             return false
         }
-        attemptID = session.attemptID ?? UUID().uuidString
+        attemptID = session.attemptID.flatMap { UUID(uuidString: $0) }?.uuidString ?? UUID().uuidString
         mode = session.mode; seed = session.seed; puzzle = session.puzzle
         route = session.route; hintsLeft = session.hintsLeft; highlighted = session.highlighted
         rival = session.rival; isFinished = session.isFinished; accumulated = session.elapsed

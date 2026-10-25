@@ -4,7 +4,7 @@
 
 1. [Firebase Console](https://console.firebase.google.com/)へGoogleアカウントでログインし、ヒトフデ用のプロジェクトを作成する。Google Analyticsを有効にし、管理するAnalyticsアカウント／プロパティを選ぶ。今回の計測にFirestore・サーバー構築・有料プランへの変更は不要。
 2. iOSアプリを追加する。Bundle IDは、実際に配布するXcodeのHitofudeターゲットの **Signing & Capabilities → Bundle Identifier** と完全にそろえる。`com.example.hitofude` は開発用なので、本番用IDを決めてから登録する。別のIDに変える場合は対応するFirebaseアプリも登録し直す。
-3. **GoogleService-Info.plist** をダウンロードする。ファイル名を変えず、XcodeのHitofudeグループへ追加し、「Copy items if needed」とHitofudeターゲットを選ぶ。Build Phases → Copy Bundle Resourcesに含まれることを確認する。Firebase SDKはこのPRのSwift Package設定から取得するので、二重に追加しない。
+3. **GoogleService-Info.plist** をダウンロードする。ファイル名を変えず、Finderでリポジトリの `ios/Configuration/` フォルダへコピーする。Xcodeにファイル参照を追加する必要はない。ビルド時にファイルがあればアプリに同梱し、なければ計測なしでビルドできる。Bundle IDが違うファイルではビルドを止める。Firebase SDKはこのPRのSwift Package設定から取得するので、二重に追加しない。
 4. この設定ファイルはgitignore対象。所有者のプロジェクト設定はこのPRには入っていない。設定ファイルにはアプリを識別する情報があるが、サービスアカウントの秘密鍵を代わりに入れてはいけない。CIや公開リポジトリへ管理者資格情報を登録する必要もない。
 5. アプリの「ほかの遊び方・記録」→「プレイ状況の計測」で、自分のテスト端末の設定をオンにする。初期設定はオフ。設定ファイルがない、またはBundle IDが違う場合は有効にできないが、ゲームは動く。
 
