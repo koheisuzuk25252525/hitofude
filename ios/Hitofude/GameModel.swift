@@ -22,6 +22,9 @@ final class GameModel: ObservableObject {
     @Published private(set) var isNightTheme: Bool
     @Published private(set) var completionMessage: String?
     @Published private(set) var returnGreeting: ReturnGreeting?
+    private var attemptID = UUID().uuidString
+    private var pauseReason = "background"
+    private let analytics: PlayEventRecording?
     private var accumulated: TimeInterval = 0
     private var segmentStart: Date?
     private let now: () -> Date
@@ -30,7 +33,9 @@ final class GameModel: ObservableObject {
     private let generate: @Sendable (GameMode, UInt32) throws -> Puzzle
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
+         analytics: PlayEventRecording? = nil,
          generate: @escaping @Sendable (GameMode, UInt32) throws -> Puzzle = { try PuzzleGenerator.generate(mode: $0, seed: $1) }) {
+        self.analytics = analytics
         self.defaults = defaults
         self.now = now
         self.generate = generate
@@ -57,6 +62,7 @@ final class GameModel: ObservableObject {
     }
 
     func load(_ selected: GameMode, seed explicitSeed: UInt32? = nil, rival opponent: Challenge? = nil) async {
+        if puzzle != nil, startedAt != nil, !isFinished { record(.leave, reason: "another_puzzle") }
         let id = UUID()
         requestID = id
         rival = opponent
@@ -75,15 +81,19 @@ final class GameModel: ObservableObject {
             guard id == requestID else { return }
             puzzle = generated
             isLoading = false
+            record(.ready)
             saveSession()
         } catch {
             guard id == requestID else { return }
             isLoading = false
             message = error.localizedDescription
+            record(.generationFailed)
         }
     }
 
     func reset() {
+        if puzzle != nil, startedAt != nil, !isFinished { record(.restart) }
+        attemptID = UUID().uuidString
         route = []; isFinished = false; hintsLeft = 3; highlighted = nil
         message = nil; startedAt = nil; finishedAt = nil
         accumulated = 0; segmentStart = nil
@@ -126,8 +136,9 @@ final class GameModel: ObservableObject {
         route = Array(route.prefix(correct))
         guard correct < puzzle.path.count else { return }
         highlighted = puzzle.path[correct]
-        hintsLeft -= 1
         beginClock()
+        hintsLeft -= 1
+        record(.hint)
         message = (corrected ? "\(correct)マス目まで戻しました。" : "") + "\(correct + 1)番目は、目印のマスです"
         saveSession()
     }
@@ -161,18 +172,39 @@ final class GameModel: ObservableObject {
         return summary + "\nリンクを送った人：\(Self.timeString(TimeInterval(rival.seconds)))\n挑戦した人：\(Self.timeString(TimeInterval(seconds)))\nタイム差：\(abs(seconds - rival.seconds))秒\n\(verdict ?? "")"
     }
 
+    private func record(_ event: PlayEvent, reason: String? = nil) {
+        let total = (puzzle?.size ?? mode.size) * (puzzle?.size ?? mode.size)
+        var parameters: [String: Any] = [
+            "attempt_id": attemptID, "mode": mode.rawValue,
+            "is_challenge": rival == nil ? 0 : 1,
+            "progress_bucket": min(10, route.count * 10 / total) * 10,
+            "elapsed_seconds": Int(min(31_536_000, max(0, elapsed(at: now())))),
+            "hints_used": 3 - hintsLeft, "completed": isFinished ? 1 : 0
+        ]
+        if let reason { parameters["reason"] = reason }
+        analytics?.record(event, parameters: parameters)
+    }
+
+    var feedbackContext: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return "ヒトフデ \(version)（\(build)）\n\(UIDevice.current.model) / iOS \(UIDevice.current.systemVersion)\n難易度：\(mode.title) / seed：\(seed)\n進捗：\(route.count)/\(mode.size * mode.size)、ヒント残り：\(hintsLeft)"
+    }
+
     private func beginClock() {
-        if startedAt == nil { startedAt = now() }
+        if startedAt == nil { startedAt = now(); record(.start) }
         if segmentStart == nil, !isPaused, !isFinished { segmentStart = now() }
     }
 
-    func setActive(_ active: Bool) {
+    func setActive(_ active: Bool, reason: String = "background") {
         let wasActive = !isPaused
         if !active {
+            if wasActive || pauseReason != reason { pauseReason = reason; if startedAt != nil { record(.pause, reason: reason) } }
             accumulated = elapsed(at: now())
             segmentStart = nil
             isPaused = true
         } else {
+            if !wasActive, startedAt != nil { record(.resume, reason: pauseReason) }
             registerVisit()
             isPaused = false
             if startedAt != nil, !isFinished, segmentStart == nil { segmentStart = now() }
@@ -193,6 +225,7 @@ final class GameModel: ObservableObject {
     }
 
     private struct Session: Codable {
+        let attemptID: String?
         let version: Int
         let mode: GameMode
         let seed: UInt32
@@ -234,7 +267,7 @@ final class GameModel: ObservableObject {
 
     private func saveSession() {
         guard let puzzle, !isLoading else { return }
-        let session = Session(version: 1, mode: mode, seed: seed, puzzle: puzzle,
+        let session = Session(attemptID: attemptID, version: 1, mode: mode, seed: seed, puzzle: puzzle,
                               route: route, hintsLeft: hintsLeft, highlighted: highlighted,
                               elapsed: elapsed(at: now()), hasStarted: startedAt != nil,
                               isFinished: isFinished, rival: rival)
@@ -249,6 +282,7 @@ final class GameModel: ObservableObject {
             defaults.removeObject(forKey: "hitofude.session.v1")
             return false
         }
+        attemptID = session.attemptID ?? UUID().uuidString
         mode = session.mode; seed = session.seed; puzzle = session.puzzle
         route = session.route; hintsLeft = session.hintsLeft; highlighted = session.highlighted
         rival = session.rival; isFinished = session.isFinished; accumulated = session.elapsed
@@ -256,6 +290,7 @@ final class GameModel: ObservableObject {
         finishedAt = session.isFinished ? now() : nil
         segmentStart = session.hasStarted && !isFinished && !isPaused ? now() : nil
         best = defaults.object(forKey: "hitofude.best.\(mode.rawValue)") as? Double
+        if !isFinished { record(.restored) }
         message = highlighted == nil ? "前のつづきから再開しました" : "前のつづきです。\(route.count + 1)番目は、目印のマスです"
         return true
     }
@@ -278,6 +313,7 @@ final class GameModel: ObservableObject {
     private func finish() {
         accumulated = elapsed(at: now()); segmentStart = nil
         isFinished = true; finishedAt = now()
+        record(.complete)
         let seconds = accumulated
         let improved = best.map { seconds < $0 } ?? false
         if mode == .tutorial {
