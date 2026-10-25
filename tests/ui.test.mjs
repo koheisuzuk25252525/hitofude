@@ -8,6 +8,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Preserve the assertion in CI annotations when hosted logs are unavailable.
+process.on('uncaughtExceptionMonitor', error => {
+  if (process.env.GITHUB_ACTIONS) {
+    const message = String(error.stack || error).slice(0, 3500).replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+    console.error(`::error title=Browser regression::${message}`);
+  }
+});
+
 const root = fileURLToPath(new URL('../', import.meta.url));
 const profile = await mkdtemp(join(tmpdir(), 'hitofude-ui-'));
 const server = createServer(async (req, res) => {

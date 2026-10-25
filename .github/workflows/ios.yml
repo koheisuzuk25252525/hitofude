@@ -28,6 +28,7 @@ jobs:
       - name: Select an installed iPhone Simulator
         run: |
           xcodebuild -version
+          echo "HITOFUDE_SIMULATOR_ARCH=$(uname -m)" >> "$GITHUB_ENV"
           xcrun simctl list devices available --json > "$RUNNER_TEMP/simulators.json"
           python3 - <<'PY' >> "$GITHUB_ENV"
           import json, os
@@ -44,7 +45,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
-            -destination "platform=iOS Simulator,id=$HITOFUDE_SIMULATOR_ID" \
+            -destination "platform=iOS Simulator,id=$HITOFUDE_SIMULATOR_ID,arch=$HITOFUDE_SIMULATOR_ARCH" \
             -parallel-testing-enabled NO \
             -resultBundlePath "$RUNNER_TEMP/HitofudeTests.xcresult" \
             CODE_SIGNING_ALLOWED=NO test 2>&1 | tee "$RUNNER_TEMP/ios-test.log"
@@ -64,6 +65,10 @@ jobs:
           import os, pathlib
           for path in pathlib.Path(os.environ['RUNNER_TEMP']).glob('ios-*.log'):
               lines = path.read_text(errors='replace').splitlines()
+              warnings = [line[:1200] for line in lines if 'warning:' in line and ('ignoring' in line or 'architecture' in line or 'link' in line)]
+              if warnings:
+                  details = '\n'.join(warnings)[-3500:].replace('%','%25').replace('\n','%0A')
+                  print('::error title=Link warnings::' + details)
               tail = '\n'.join(line[:1500] for line in lines[-100:])[-30000:]
               # GitHub truncates each annotation to 4096 characters; show the end first.
               chunks = [tail[max(0, end - 3500):end] for end in range(len(tail), 0, -3500)]
