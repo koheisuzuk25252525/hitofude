@@ -2,3 +2,5 @@
 DerivedData/
 xcuserdata/
 *.xcuserstate
+
+GoogleService-Info.plist

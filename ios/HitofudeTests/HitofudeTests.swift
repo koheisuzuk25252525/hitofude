@@ -525,4 +525,167 @@ final class HitofudeTests: XCTestCase {
         XCTAssertNotNil(result?.toString())
     }
 
+    func testBundledAnalyticsDefaultsDisableAutomaticCollection() throws {
+        for key in ["FIREBASE_ANALYTICS_COLLECTION_ENABLED", "GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED",
+                    "FirebaseAutomaticScreenReportingEnabled", "GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS"] {
+            let value = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: key), key)
+            if let number = value as? NSNumber { XCTAssertFalse(number.boolValue, key) }
+            else if let string = value as? NSString { XCTAssertFalse(string.boolValue, key) }
+            else { XCTFail("Unexpected setting type: \(key)") }
+        }
+    }
+
+    @MainActor
+    func testAnalyticsRequiresOptInAndStopsImmediatelyWhenDisabled() throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let client = TestAnalyticsClient()
+        let analytics = PlayAnalytics(defaults: defaults, client: client)
+        analytics.record(.start, parameters: [:])
+        XCTAssertTrue(client.events.isEmpty)
+        XCTAssertEqual(client.enables, 0)
+        analytics.setEnabled(true)
+        analytics.record(.start, parameters: ["mode": "easy"])
+        XCTAssertEqual(client.events.map { $0.0 }, ["puzzle_start"])
+        XCTAssertEqual(client.enables, 1)
+        analytics.setEnabled(true)
+        XCTAssertEqual(client.enables, 1)
+        let relaunched = PlayAnalytics(defaults: defaults, client: client)
+        XCTAssertTrue(relaunched.enabled)
+        relaunched.setEnabled(false)
+        relaunched.record(.complete, parameters: [:])
+        XCTAssertEqual(client.resets, 1)
+        XCTAssertEqual(client.events.count, 1)
+        XCTAssertFalse(PlayAnalytics(defaults: defaults, client: client).enabled)
+    }
+
+    @MainActor
+    func testUnconfiguredAnalyticsCannotBeEnabled() throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let client = TestAnalyticsClient()
+        client.available = false
+        let analytics = PlayAnalytics(defaults: defaults, client: client)
+        analytics.setEnabled(true)
+        analytics.record(.start, parameters: [:])
+        XCTAssertFalse(analytics.enabled)
+        XCTAssertEqual(client.enables, 0)
+        XCTAssertTrue(client.events.isEmpty)
+    }
+
+    @MainActor
+    func testAnalyticsDistinguishesMenuBackgroundRestartAndClear() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var date = Date(timeIntervalSince1970: 1000)
+        let recorder = TestPlayRecorder()
+        let game = GameModel(defaults: defaults, now: { date }, analytics: recorder)
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        game.hint(); game.hint()
+        game.step(puzzle.path[0]); game.step(puzzle.path[1])
+        XCTAssertEqual(recorder.events.filter { $0.0 == .start }.count, 1)
+        XCTAssertEqual(recorder.events.filter { $0.0 == .hint }.count, 1)
+        date = date.addingTimeInterval(5)
+        game.setActive(false, reason: "menu"); game.setActive(false, reason: "menu")
+        game.setActive(false, reason: "background"); game.setActive(false, reason: "background")
+        date = date.addingTimeInterval(3600)
+        game.setActive(true); game.setActive(true)
+        let pauses = recorder.events.filter { $0.0 == .pause }
+        XCTAssertEqual(pauses.compactMap { $0.1["reason"] as? String }, ["menu", "background"])
+        XCTAssertEqual(recorder.events.filter { $0.0 == .resume }.count, 1)
+        XCTAssertEqual(game.elapsed(at: date), 5)
+        for cell in puzzle.path.dropFirst(2) { game.step(cell) }
+        let result = try XCTUnwrap(recorder.events.first { $0.0 == .complete }?.1)
+        XCTAssertEqual(result["elapsed_seconds"] as? Int, 5)
+        XCTAssertEqual(result["progress_bucket"] as? Int, 100)
+        XCTAssertEqual(result["hints_used"] as? Int, 1)
+        XCTAssertEqual(result["completed"] as? Int, 1)
+        XCTAssertNil(result["seed"])
+        XCTAssertNil(result["route"])
+        await game.load(.easy, seed: 1001)
+        XCTAssertFalse(recorder.events.contains { $0.0 == .leave })
+        let next = try XCTUnwrap(game.puzzle)
+        game.step(next.path[0]); game.reset()
+        XCTAssertEqual(recorder.events.filter { $0.0 == .restart }.count, 1)
+        game.step(next.path[0]); await game.load(.medium, seed: 1000)
+        XCTAssertEqual(recorder.events.filter { $0.0 == .leave }.count, 1)
+    }
+
+    @MainActor
+    func testAnalyticsCapturesLeavingBeforeFirstMove() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let recorder = TestPlayRecorder()
+        let game = GameModel(defaults: defaults, analytics: recorder)
+        await game.load(.tutorial)
+        game.setActive(false)
+        let pause = try XCTUnwrap(recorder.events.first { $0.0 == .pause }?.1)
+        XCTAssertEqual(pause["started"] as? Int, 0)
+        XCTAssertEqual(pause["progress_bucket"] as? Int, 0)
+        XCTAssertFalse(recorder.events.contains { $0.0 == .start })
+        game.setActive(true)
+        await game.load(.easy, seed: 1000)
+        XCTAssertEqual(recorder.events.filter { $0.0 == .leave }.count, 1)
+    }
+
+    @MainActor
+    func testAnalyticsAttemptSurvivesRestoreAndOldSaveRemainsCompatible() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let recorder = TestPlayRecorder()
+        let game = GameModel(defaults: defaults, analytics: recorder)
+        await game.load(.tutorial)
+        game.step(Puzzle.tutorial.path[0])
+        let startID = try XCTUnwrap(recorder.events.first { $0.0 == .start }?.1["attempt_id"] as? String)
+        let restored = GameModel(defaults: defaults, analytics: recorder)
+        await restored.startInitialGame()
+        let restoreID = try XCTUnwrap(recorder.events.first { $0.0 == .restored }?.1["attempt_id"] as? String)
+        XCTAssertEqual(startID, restoreID)
+        XCTAssertEqual(recorder.events.filter { $0.0 == .start }.count, 1)
+        let saved = try XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+        object.removeValue(forKey: "attemptID")
+        defaults.set(try JSONSerialization.data(withJSONObject: object), forKey: "hitofude.session.v1")
+        let legacy = GameModel(defaults: defaults, analytics: recorder)
+        await legacy.startInitialGame()
+        XCTAssertEqual(legacy.route, game.route)
+        XCTAssertEqual(legacy.seed, game.seed)
+    }
+
+    @MainActor
+    func testFeedbackContainsReproductionContextWithoutAnalyticsIdentifier() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        XCTAssertTrue(game.feedbackContext.contains("seed：1000"))
+        XCTAssertTrue(game.feedbackContext.contains("進捗：0/25"))
+        XCTAssertFalse(game.feedbackContext.contains("attempt_id"))
+    }
+
+}
+
+
+@MainActor
+private final class TestAnalyticsClient: AnalyticsClient {
+    var available = true
+    var enables = 0
+    var resets = 0
+    var events: [(String, [String: Any])] = []
+    func enable() { enables += 1 }
+    func disableAndReset() { resets += 1 }
+    func log(_ name: String, parameters: [String: Any]) { events.append((name, parameters)) }
+}
+
+@MainActor
+private final class TestPlayRecorder: PlayEventRecording {
+    var events: [(PlayEvent, [String: Any])] = []
+    func record(_ event: PlayEvent, parameters: [String: Any]) { events.append((event, parameters)) }
 }

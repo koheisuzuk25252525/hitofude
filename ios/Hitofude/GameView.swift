@@ -32,7 +32,10 @@ private extension EnvironmentValues {
 }
 
 struct GameView: View {
-    @StateObject private var game = GameModel()
+    @StateObject private var game = GameModel(analytics: PlayAnalytics.shared)
+    @State private var showsAnalytics = false
+    @State private var showsFeedback = false
+    @State private var feedbackContext = ""
     @Environment(\.scenePhase) private var scenePhase
     @State private var showsProgress = false
     @State private var showsHelp = false
@@ -94,6 +97,11 @@ struct GameView: View {
                 DisclosureGroup("ほかの遊び方・記録") {
                     VStack(spacing: 16) {
                         modes
+                        Button("不具合・感想を送る") {
+                            feedbackContext = game.feedbackContext
+                            showsFeedback = true
+                        }
+                        Button("プレイ状況の計測") { showsAnalytics = true }
                         Button { showsChallenge = true } label: {
                             Label("リンクで対戦", systemImage: "person.2")
                         }.disabled(game.isLoading)
@@ -121,6 +129,10 @@ struct GameView: View {
         .onChange(of: showsHelp) { _, _ in updateActivity() }
         .onChange(of: showsChallenge) { _, _ in updateActivity() }
         .onChange(of: showsProgress) { _, _ in updateActivity() }
+        .onChange(of: showsAnalytics) { _, _ in updateActivity() }
+        .onChange(of: showsFeedback) { _, _ in updateActivity() }
+        .sheet(isPresented: $showsAnalytics) { AnalyticsSettingsView(analytics: PlayAnalytics.shared) }
+        .sheet(isPresented: $showsFeedback) { FeedbackView(context: feedbackContext) }
         .sheet(isPresented: $showsProgress) {
             ProgressCalendarView(game: game)
         }
@@ -152,7 +164,8 @@ struct GameView: View {
     }
 
     private func updateActivity() {
-        game.setActive(scenePhase == .active && !showsHelp && !showsChallenge && !showsProgress)
+        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback
+        game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
     private func progressCard(at date: Date) -> some View {
