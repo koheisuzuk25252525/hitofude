@@ -63,8 +63,11 @@ jobs:
           python3 - <<'PY'
           import os, pathlib
           for path in pathlib.Path(os.environ['RUNNER_TEMP']).glob('ios-*.log'):
+              context = 0
               for line in path.read_text(errors='replace').splitlines():
-                  if 'error:' in line or 'failed' in line.lower():
+                  if 'Undefined symbols' in line or 'ld:' in line or 'error:' in line: context = 30
+                  if context > 0 or 'failed' in line.lower():
+                      context = max(0, context - 1)
                       message = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
                       print('::error::' + message[:1500])
           PY
