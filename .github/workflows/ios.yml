@@ -65,8 +65,11 @@ jobs:
           for path in pathlib.Path(os.environ['RUNNER_TEMP']).glob('ios-*.log'):
               lines = path.read_text(errors='replace').splitlines()
               tail = '\n'.join(line[:1500] for line in lines[-100:])[-30000:]
-              message = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-              print('::error title=' + path.name + '::' + message)
+              # GitHub truncates each annotation to 4096 characters; show the end first.
+              chunks = [tail[max(0, end - 3500):end] for end in range(len(tail), 0, -3500)]
+              for index, chunk in enumerate(chunks[:9]):
+                  message = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::error title=' + path.name + ' tail ' + str(index) + '::' + message)
           PY
       - name: Save XCTest results
         if: always()
