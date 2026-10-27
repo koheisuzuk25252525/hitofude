@@ -222,6 +222,32 @@ try {
   check('failed share gracefully copies the challenge URL', await evaluate('copied'), await evaluate('originalLink'));
   await evaluate("$('copyDare').click()");
   check('explicit copy-link button copies the challenge URL', await evaluate('copied'), await evaluate('originalLink'));
+
+  // Safari and embedded browsers may deny the async Clipboard API.
+  // Verify the legacy textarea fallback without depending on OS clipboard access.
+  await evaluate(`(async()=>{
+    const originalClipboard=navigator.clipboard,originalExec=document.execCommand;
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:undefined});
+    document.execCommand=command=>{
+      globalThis.legacyCopy=[command,document.querySelector('body > textarea')?.value];
+      return true;
+    };
+    await copy('共有テキスト','コピーしました');
+    globalThis.legacySuccess=[legacyCopy,$('toast').textContent,!document.querySelector('body > textarea')];
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{
+      writeText:()=>Promise.reject(new Error('permission denied'))
+    }});
+    document.execCommand=()=>false;
+    await copy('共有テキスト','コピーしました');
+    globalThis.legacyFailure=[$('toast').textContent,!document.querySelector('body > textarea')];
+    document.execCommand=originalExec;
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:originalClipboard});
+  })()`);
+  check('missing Clipboard API uses textarea fallback and cleans up', await evaluate('legacySuccess'),
+    [['copy','共有テキスト'],'コピーしました',true]);
+  check('denied Clipboard API and failed legacy copy show failure without leaving textarea',
+    await evaluate('legacyFailure'), ['コピーできませんでした',true]);
+
   await evaluate("$('share').click()");
   check('ordinary result copy stays compatible', await evaluate("[copied===shareText(false),copied.includes('⏱ 0:12')]"), [true,true]);
 
