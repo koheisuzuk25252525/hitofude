@@ -25,6 +25,7 @@ final class GameModel: ObservableObject {
     private var attemptID = UUID().uuidString
     private var pauseReason = "background"
     private let analytics: PlayEventRecording?
+    private let sounds: GameSoundPlaying?
     private var accumulated: TimeInterval = 0
     private var segmentStart: Date?
     private let now: () -> Date
@@ -33,9 +34,10 @@ final class GameModel: ObservableObject {
     private let generate: @Sendable (GameMode, UInt32) throws -> Puzzle
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
-         analytics: PlayEventRecording? = nil,
+         analytics: PlayEventRecording? = nil, sounds: GameSoundPlaying? = nil,
          generate: @escaping @Sendable (GameMode, UInt32) throws -> Puzzle = { try PuzzleGenerator.generate(mode: $0, seed: $1) }) {
         self.analytics = analytics
+        self.sounds = sounds
         self.defaults = defaults
         self.now = now
         self.generate = generate
@@ -92,6 +94,7 @@ final class GameModel: ObservableObject {
     }
 
     func reset() {
+        sounds?.stop()
         if puzzle != nil, startedAt != nil, !isFinished { record(.restart) }
         attemptID = UUID().uuidString
         route = []; isFinished = false; hintsLeft = 3; highlighted = nil
@@ -118,6 +121,7 @@ final class GameModel: ObservableObject {
         beginClock()
         route.append(cell); highlighted = nil; message = nil
         UISelectionFeedbackGenerator().selectionChanged()
+        sounds?.play(.step(index: route.count - 1, total: puzzle.size * puzzle.size))
         if route.count == puzzle.size * puzzle.size { finish() }
         saveSession()
     }
@@ -199,6 +203,7 @@ final class GameModel: ObservableObject {
     func setActive(_ active: Bool, reason: String = "background") {
         let wasActive = !isPaused
         if !active {
+            sounds?.stop()
             if wasActive || pauseReason != reason { pauseReason = reason; if puzzle != nil { record(.pause, reason: reason) } }
             accumulated = elapsed(at: now())
             segmentStart = nil
@@ -314,6 +319,7 @@ final class GameModel: ObservableObject {
         accumulated = elapsed(at: now()); segmentStart = nil
         isFinished = true; finishedAt = now()
         record(.complete)
+        sounds?.play(.clear)
         let seconds = accumulated
         let improved = best.map { seconds < $0 } ?? false
         if mode == .tutorial {

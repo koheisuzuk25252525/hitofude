@@ -32,11 +32,17 @@ private extension EnvironmentValues {
 }
 
 struct GameView: View {
-    @StateObject private var game = GameModel(analytics: PlayAnalytics.shared)
+    @StateObject private var game = GameModel(analytics: PlayAnalytics.shared, sounds: GameAudio.shared)
+    @ObservedObject private var audio = GameAudio.shared
     @State private var showsAnalytics = false
     @State private var showsFeedback = false
     @State private var feedbackContext = ""
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var showsMore = false
+    @State private var showsResult = false
+    private enum MoreDestination { case feedback, analytics, challenge, progress }
+    @State private var pendingDestination: MoreDestination?
     @State private var showsProgress = false
     @State private var showsHelp = false
     private var palette: Palette { Palette(isNight: game.isNightTheme) }
@@ -45,78 +51,24 @@ struct GameView: View {
     @State private var challengeError: String?
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                header
-                if let greeting = game.returnGreeting {
-                    ReturnGreetingView(greeting: greeting)
-                }
-                if let rival = game.rival {
-                    Text("対戦中：相手のタイム \(GameModel.timeString(TimeInterval(rival.seconds)))")
-                        .font(.callout.bold()).foregroundStyle(palette.accent)
-                    Text("ヒントは3回。中断中はタイマーが止まります。")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let puzzle = game.puzzle {
-                    BoardView(game: game, puzzle: puzzle)
-                        .aspectRatio(1, contentMode: .fit)
-                        .overlay {
-                            if game.isPaused {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 18).fill(.regularMaterial)
-                                    Text("一時停止中").font(.title2.bold())
-                                }
-                            }
-                        }
-                    if game.isFinished { completion }
-                    if !game.isFinished { controls }
-                    if let message = game.message {
-                        Text(message).font(.callout).foregroundStyle(palette.accent)
-                            .accessibilityAddTraits(.updatesFrequently)
-                    } else if game.mode == .tutorial {
-                        Text("1からはじめて、7 → 11 → 16の順に、すべてのマスをなぞってね")
-                            .font(.callout).multilineTextAlignment(.center)
-                    }
-                } else if game.isLoading {
-                    VStack(spacing: 16) {
-                        ProgressView().tint(palette.accent)
-                        Text("問題を作っています…")
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 300)
-                    .accessibilityElement(children: .combine)
-                } else {
-                    VStack(spacing: 16) {
-                        Text(game.message ?? "問題を作れませんでした")
-                        Button("もう一度") { Task { await game.load(game.mode, seed: game.seed, rival: game.rival) } }
-                        Button("さくっと一問へ") { Task { await game.load(.easy) } }
-                    }.frame(maxWidth: .infinity, minHeight: 300)
-                }
-                if !game.isFinished { Button { Task { await game.load(.easy) } } label: {
-                    Label("新しいさくっと1問", systemImage: "arrow.right")
-                }.buttonStyle(.bordered).disabled(game.isLoading) }
-                DisclosureGroup("ほかの遊び方・記録") {
-                    VStack(spacing: 16) {
-                        modes
-                        Button("不具合・感想を送る") {
-                            feedbackContext = game.feedbackContext
-                            showsFeedback = true
-                        }
-                        Button("プレイ状況の計測") { showsAnalytics = true }
-                        Button { showsChallenge = true } label: {
-                            Label("リンクで対戦", systemImage: "person.2")
-                        }.disabled(game.isLoading)
-                        TimelineView(.periodic(from: .now, by: 60)) { context in
-                            progressCard(at: context.date)
-                        }
-                    }.padding(.top, 12)
-                }
-                Text("1から指でなぞって、すべてのマスを1回ずつ通り、いちばん大きい数字で終わろう。数字は「何番目に通るか」。")
-                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        ViewThatFits(in: .vertical) {
+            PlayScreenLayout(minimumBoardSide: 192) {
+                screenHeader
+                playArea
+                actionDock
             }
-            .padding(20)
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
+            // Large accessibility text / short landscape windows keep actions pinned.
+            ScrollView {
+                VStack(spacing: 8) {
+                    screenHeader
+                    playArea.aspectRatio(1, contentMode: .fit)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 8) { actionDock.background(palette.background) }
         }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.background.ignoresSafeArea())
         .foregroundStyle(palette.foreground)
         .tint(palette.accent)
@@ -125,6 +77,16 @@ struct GameView: View {
         .task { await game.startInitialGame() }
         .onChange(of: scenePhase, initial: true) { _, phase in
             updateActivity()
+        }
+        .onChange(of: showsMore) { _, _ in updateActivity() }
+        .onChange(of: showsResult) { _, _ in updateActivity() }
+        .sheet(isPresented: $showsMore, onDismiss: openPendingDestination) { moreSheet }
+        .sheet(isPresented: $showsResult, onDismiss: openPendingDestination) {
+            NavigationStack {
+                ScrollView { completion.padding(16) }
+                    .navigationTitle("今回の結果")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsResult = false } } }
+            }
         }
         .onChange(of: showsHelp) { _, _ in updateActivity() }
         .onChange(of: showsChallenge) { _, _ in updateActivity() }
@@ -145,6 +107,7 @@ struct GameView: View {
                     Text("1のマスから、上下左右になぞります。ななめには進めません。")
                     Text("数字のあるマスは、その順番に通りましょう。すべてのマスを1回ずつ通ればクリア！")
                     Text("ひとつ前のマスへ戻ると、1手取り消せます。マスを順にタップしても遊べます。")
+                    Text("難易度は盤面の上で選べます。効果音は画面上のスピーカーで切り替えます。消音モード中は鳴りません。")
                     Button("れんしゅうする") {
                         showsHelp = false
                         Task { await game.load(.tutorial) }
@@ -163,14 +126,119 @@ struct GameView: View {
         }
     }
 
+    private var screenHeader: some View {
+        VStack(spacing: 6) {
+            header
+            DifficultyTabs(selected: game.mode, isLoading: game.isLoading) { mode in
+                Task { await game.load(mode) }
+            }
+            if let greeting = game.returnGreeting {
+                Label(greeting.text, systemImage: greeting.symbol).font(.caption).lineLimit(2)
+            }
+            if let rival = game.rival {
+                Text("対戦中：相手 \(GameModel.timeString(TimeInterval(rival.seconds)))")
+                    .font(.caption).foregroundStyle(palette.accent)
+            }
+        }.fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var playArea: some View {
+        if let puzzle = game.puzzle {
+            BoardView(game: game, puzzle: puzzle)
+                .overlay {
+                    if game.isPaused {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 18).fill(.regularMaterial)
+                            Text("一時停止中").font(.title2.bold())
+                        }
+                    }
+                }
+        } else if game.isLoading {
+            VStack(spacing: 12) { ProgressView(); Text("問題を作っています…") }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 12) {
+                Text(game.message ?? "問題を作れませんでした")
+                Button("もう一度") { Task { await game.load(game.mode, seed: game.seed, rival: game.rival) } }
+                Button("さくっと一問へ") { Task { await game.load(.easy) } }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var actionDock: some View {
+        VStack(spacing: 6) {
+            if game.isFinished {
+                Text("ひと筆、完成！").font(.headline).foregroundStyle(palette.accent)
+                HStack {
+                    Button(action: nextPuzzle) { Text("もう一問").frame(maxWidth: .infinity, minHeight: 44) }
+                        .buttonStyle(.borderedProminent).accessibilityIdentifier("next-puzzle")
+                    Button("結果・共有") { showsResult = true }
+                        .buttonStyle(.bordered).frame(minHeight: 44)
+                }
+            } else if game.puzzle != nil {
+                controls
+            }
+        }.fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func nextPuzzle() {
+        showsResult = false
+        Task { await game.load(game.mode == .tutorial ? .easy : game.mode == .daily ? .medium : game.mode) }
+    }
+
+    private func chooseMore(_ destination: MoreDestination) {
+        pendingDestination = destination
+        showsMore = false
+    }
+
+    private func openPendingDestination() {
+        let destination = pendingDestination
+        switch destination {
+        case .feedback: showsFeedback = true
+        case .analytics: showsAnalytics = true
+        case .challenge: showsChallenge = true
+        case .progress: showsProgress = true
+        case nil: break
+        }
+        pendingDestination = nil
+        updateActivity()
+    }
+
+    private var moreSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    if let best = game.best { Text("\(game.mode.title)のベスト \(GameModel.timeString(best))") }
+                    Button("別の問題") {
+                        showsMore = false
+                        Task { await game.load(game.mode) }
+                    }.disabled(game.isLoading)
+                    Button("リンクで対戦") { chooseMore(.challenge) }.disabled(game.isLoading)
+                    TimelineView(.periodic(from: .now, by: 60)) { context in progressCard(at: context.date) }
+                    if let completionMessage = game.completionMessage { Text(completionMessage) }
+                    Button("不具合・感想を送る") {
+                        feedbackContext = game.feedbackContext
+                        chooseMore(.feedback)
+                    }
+                    Button("プレイ状況の計測") { chooseMore(.analytics) }
+                    Text("ヒントは3回。中断中はタイマーが止まります。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }.padding(20)
+            }
+            .navigationTitle("遊び方・記録・設定")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsMore = false } } }
+        }
+    }
+
     private func updateActivity() {
-        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback
+        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || showsResult || pendingDestination != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
     private func progressCard(at date: Date) -> some View {
         let count = game.progress.count(in: date)
-        return Button { showsProgress = true } label: {
+        return Button { chooseMore(.progress) } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Label("今月のひとふで", systemImage: "calendar")
@@ -228,14 +296,25 @@ struct GameView: View {
     }
 
     private var header: some View {
-        VStack(spacing: 12) {
-            HStack {
+        VStack(spacing: 4) {
+            HStack(spacing: 0) {
                 (Text("ヒト") + Text("フデ").foregroundColor(palette.accent))
-                    .font(.system(.largeTitle, design: .rounded, weight: .black))
+                    .font(.system(.title2, design: .rounded, weight: .black))
+                    .lineLimit(1).minimumScaleFactor(0.5)
                 Spacer()
+                Button { audio.setEnabled(!audio.enabled) } label: {
+                    Image(systemName: audio.enabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.title2).frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("効果音")
+                .accessibilityValue(audio.enabled ? "オン" : "オフ")
+                .accessibilityHint(audio.enabled ? "効果音をオフにする" : "効果音をオンにする")
                 Button { showsHelp = true } label: {
                     Image(systemName: "questionmark.circle").font(.title2).frame(width: 44, height: 44)
                 }.accessibilityLabel("あそびかた")
+                Button { showsMore = true } label: {
+                    Image(systemName: "ellipsis.circle").font(.title2).frame(width: 44, height: 44)
+                }.accessibilityLabel("遊び方・記録・設定")
             }
             HStack {
                 Text(game.mode == .easy ? "さくっと1問" : game.mode.title).font(.headline)
@@ -248,29 +327,12 @@ struct GameView: View {
                         .accessibilityLabel("経過時間 \(GameModel.timeString(game.elapsed(at: context.date)))")
                 }
             }
-            Text(game.guidance).font(.callout.bold()).multilineTextAlignment(.center)
+            Text(game.message ?? game.guidance).font(.caption.bold()).multilineTextAlignment(.center)
+                .foregroundStyle(game.message == nil ? palette.foreground : palette.accent)
+                .lineLimit(typeSize.isAccessibilitySize ? 8 : 2, reservesSpace: !typeSize.isAccessibilitySize)
+                .accessibilityAddTraits(.updatesFrequently)
             if game.mode == .daily, game.seed != GameMode.dailySeed(), game.puzzle != nil {
                 Text("保存した日の問題（\(String(game.seed))）").font(.caption).foregroundStyle(.secondary)
-            }
-            if let best = game.best {
-                Text("ベスト \(GameModel.timeString(best))").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var modes: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(GameMode.allCases.filter { $0 != .tutorial }) { mode in
-                    Button { Task { await game.load(mode) } } label: {
-                        Text(mode.title).font(.subheadline.bold())
-                            .padding(.horizontal, 18).frame(minHeight: 44)
-                            .background(game.mode == mode ? palette.accent : palette.soft, in: Capsule())
-                            .foregroundStyle(game.mode == mode ? palette.background : palette.foreground)
-                    }
-                    .accessibilityAddTraits(game.mode == mode ? .isSelected : [])
-                    .disabled(game.isLoading)
-                }
             }
         }
     }
@@ -300,12 +362,11 @@ struct GameView: View {
             if let completionMessage = game.completionMessage {
                 Text(completionMessage).multilineTextAlignment(.center)
             }
-            Button("もう一問") {
-                Task { await game.load(game.mode == .tutorial ? .easy : game.mode == .daily ? .medium : game.mode) }
-            }.buttonStyle(.borderedProminent).controlSize(.large)
+            Button("もう一問", action: nextPuzzle).buttonStyle(.borderedProminent).controlSize(.large)
             if let verdict = game.verdict {
                 Text(verdict).font(.headline)
                 Button("同じ問題で再挑戦") {
+                    showsResult = false
                     Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
                 }.buttonStyle(.bordered)
             }
@@ -318,38 +379,11 @@ struct GameView: View {
             }
             ShareLink(item: game.shareText) { Label(game.rival == nil ? "結果を共有" : "対戦結果を返信", systemImage: "square.and.arrow.up") }
                 .buttonStyle(.bordered)
-            Button("達成カレンダーを見る") { showsProgress = true }
+            Button("達成カレンダーを見る") { showsResult = false; pendingDestination = .progress }
         }
         .padding(20).frame(maxWidth: .infinity)
         .background(palette.soft, in: RoundedRectangle(cornerRadius: 20))
         .accessibilityElement(children: .contain)
-    }
-}
-
-private struct ReturnGreetingView: View {
-    let greeting: ReturnGreeting
-    @Environment(\.hitofudePalette) private var palette
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: greeting.symbol)
-                .font(.title2).foregroundStyle(palette.accent)
-                .rotationEffect(.degrees(appeared ? 0 : -12))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(greeting.text).font(.callout.bold())
-                Text("1問だけでも、ごゆっくり。").font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(12)
-        .background(palette.soft, in: RoundedRectangle(cornerRadius: 14))
-        .opacity(appeared ? 1 : 0)
-        .onAppear {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.6)) { appeared = true }
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -541,3 +575,92 @@ private struct ProgressCalendarView: View {
 }
 
 #Preview { GameView() }
+
+struct DifficultyTabs: View {
+    let selected: GameMode
+    let isLoading: Bool
+    let select: (GameMode) -> Void
+    @Environment(\.hitofudePalette) private var palette
+
+    // All five modes remain visible; narrow screens and large text wrap into rows.
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("難易度・きょうの1問").font(.caption).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(playModes) { mode in modeButton(mode).fixedSize(horizontal: true, vertical: false) }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                    ForEach(playModes) { mode in modeButton(mode) }
+                }
+            }
+        }
+    }
+
+    private var playModes: [GameMode] { [.daily, .easy, .medium, .hard, .oni] }
+
+    private func modeButton(_ mode: GameMode) -> some View {
+        Button { select(mode) } label: {
+            Text(mode.title).font(.subheadline.bold())
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(selected == mode ? palette.accent : palette.soft, in: Capsule())
+                .foregroundStyle(selected == mode ? palette.background : palette.foreground)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected == mode ? .isSelected : [])
+        .accessibilityIdentifier("mode-" + mode.rawValue)
+        .disabled(isLoading)
+    }
+
+}
+
+/// Reserve the header and actions before giving the board the remaining square.
+/// Report a minimum height so ViewThatFits can use the accessible scrolling fallback.
+struct PlayScreenGeometry {
+    let size: CGSize
+    let header: CGRect
+    let board: CGRect
+    let footer: CGRect
+
+    init(width: CGFloat, height: CGFloat?, headerHeight: CGFloat, footerHeight: CGFloat,
+         minimumBoardSide: CGFloat = 192) {
+        let width = width.isFinite ? max(0, width) : 536
+        let proposedHeight = height.flatMap { $0.isFinite ? $0 : nil }
+        let minimum = headerHeight + footerHeight + min(width, minimumBoardSide) + 16
+        let height = max(proposedHeight ?? minimum, minimum)
+        size = CGSize(width: width, height: height)
+        let side = floor(min(width, height - headerHeight - footerHeight - 16))
+        header = CGRect(x: 0, y: 0, width: width, height: headerHeight)
+        footer = CGRect(x: 0, y: height - footerHeight, width: width, height: footerHeight)
+        board = CGRect(x: (width - side) / 2,
+                       y: headerHeight + 8 + (height - headerHeight - footerHeight - 16 - side) / 2,
+                       width: side, height: side)
+    }
+}
+
+struct PlayScreenLayout: Layout {
+    var minimumBoardSide: CGFloat = 192
+
+    private func geometry(_ proposal: ProposedViewSize, subviews: Subviews) -> PlayScreenGeometry {
+        let width = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil } ?? 536
+        let sizing = ProposedViewSize(width: width, height: nil)
+        return PlayScreenGeometry(width: width, height: proposal.height,
+                                  headerHeight: subviews[0].sizeThatFits(sizing).height,
+                                  footerHeight: subviews[2].sizeThatFits(sizing).height,
+                                  minimumBoardSide: minimumBoardSide)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        geometry(proposal, subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let plan = geometry(ProposedViewSize(bounds.size), subviews: subviews)
+        for (index, frame) in [plan.header, plan.board, plan.footer].enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                                 anchor: .topLeading, proposal: ProposedViewSize(frame.size))
+        }
+    }
+}
