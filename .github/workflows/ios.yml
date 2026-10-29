@@ -44,6 +44,20 @@ jobs:
       - name: Build and run XCTest
         run: |
           set -o pipefail
+          # Surface progress even when the runner's full log download is unavailable.
+          python3 -u - <<'PYMONITOR' &
+          import os, pathlib, time
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-test.log'
+          for index in range(8):
+              time.sleep(45)
+              if path.exists():
+                  lines = path.read_text(errors='replace').splitlines()
+                  tail = '\n'.join(line[:500] for line in lines[-4:])
+                  message = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::notice title=iOS progress ' + str(index + 1) + '::' + message, flush=True)
+          PYMONITOR
+          progress_pid=$!
+          trap 'kill "$progress_pid" 2>/dev/null || true' EXIT
           xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
             -destination "platform=iOS Simulator,id=$HITOFUDE_SIMULATOR_ID,arch=$HITOFUDE_SIMULATOR_ARCH" \
             -parallel-testing-enabled NO \
