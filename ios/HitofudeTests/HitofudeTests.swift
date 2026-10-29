@@ -6,6 +6,10 @@ import SwiftUI
 
 final class HitofudeTests: XCTestCase {
     func testPlayScreenReservesActionsAndFitsBoardOnPhoneSizes() {
+        let flexible = PlayScreenGeometry(width: .infinity, height: .infinity, headerHeight: 220, footerHeight: 94)
+        XCTAssertTrue(flexible.size.width.isFinite)
+        XCTAssertTrue(flexible.size.height.isFinite)
+        XCTAssertTrue(flexible.board.minX.isFinite)
         let ideal = PlayScreenGeometry(width: 351, height: nil, headerHeight: 220, footerHeight: 94)
         XCTAssertEqual(ideal.size.height, 522) // ViewThatFits must measure the minimum, not a full-width board.
         // Available sizes after safe areas and screen padding, portrait and landscape.

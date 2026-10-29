@@ -626,9 +626,10 @@ struct PlayScreenGeometry {
 
     init(width: CGFloat, height: CGFloat?, headerHeight: CGFloat, footerHeight: CGFloat,
          minimumBoardSide: CGFloat = 192) {
-        let width = max(0, width)
+        let width = width.isFinite ? max(0, width) : 536
+        let proposedHeight = height.flatMap { $0.isFinite ? $0 : nil }
         let minimum = headerHeight + footerHeight + min(width, minimumBoardSide) + 16
-        let height = max(height ?? minimum, minimum)
+        let height = max(proposedHeight ?? minimum, minimum)
         size = CGSize(width: width, height: height)
         let side = floor(min(width, height - headerHeight - footerHeight - 16))
         header = CGRect(x: 0, y: 0, width: width, height: headerHeight)
@@ -643,7 +644,7 @@ struct PlayScreenLayout: Layout {
     var minimumBoardSide: CGFloat = 192
 
     private func geometry(_ proposal: ProposedViewSize, subviews: Subviews) -> PlayScreenGeometry {
-        let width = proposal.width ?? 536
+        let width = proposal.width.flatMap { $0.isFinite ? max(0, $0) : nil } ?? 536
         let sizing = ProposedViewSize(width: width, height: nil)
         return PlayScreenGeometry(width: width, height: proposal.height,
                                   headerHeight: subviews[0].sizeThatFits(sizing).height,
