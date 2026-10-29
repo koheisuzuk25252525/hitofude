@@ -38,6 +38,7 @@ struct GameView: View {
     @State private var showsFeedback = false
     @State private var feedbackContext = ""
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showsMore = false
     @State private var showsResult = false
     private enum MoreDestination { case feedback, analytics, challenge, progress }
@@ -176,10 +177,6 @@ struct GameView: View {
                         .buttonStyle(.bordered).frame(minHeight: 44)
                 }
             } else if game.puzzle != nil {
-                if let message = game.message {
-                    Text(message).font(.caption).foregroundStyle(palette.accent)
-                        .multilineTextAlignment(.center).accessibilityAddTraits(.updatesFrequently)
-                }
                 controls
             }
         }.fixedSize(horizontal: false, vertical: true)
@@ -330,7 +327,10 @@ struct GameView: View {
                         .accessibilityLabel("経過時間 \(GameModel.timeString(game.elapsed(at: context.date)))")
                 }
             }
-            Text(game.guidance).font(.caption.bold()).multilineTextAlignment(.center)
+            Text(game.message ?? game.guidance).font(.caption.bold()).multilineTextAlignment(.center)
+                .foregroundStyle(game.message == nil ? palette.foreground : palette.accent)
+                .lineLimit(typeSize.isAccessibilitySize ? 8 : 2, reservesSpace: !typeSize.isAccessibilitySize)
+                .accessibilityAddTraits(.updatesFrequently)
             if game.mode == .daily, game.seed != GameMode.dailySeed(), game.puzzle != nil {
                 Text("保存した日の問題（\(String(game.seed))）").font(.caption).foregroundStyle(.secondary)
             }
