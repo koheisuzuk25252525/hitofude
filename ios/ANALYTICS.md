@@ -6,7 +6,7 @@
 2. iOSアプリを追加する。Bundle IDは、実際に配布するXcodeのHitofudeターゲットの **Signing & Capabilities → Bundle Identifier** と完全にそろえる。`com.example.hitofude` は開発用なので、本番用IDを決めてから登録する。別のIDに変える場合は対応するFirebaseアプリも登録し直す。
 3. **GoogleService-Info.plist** をダウンロードする。ファイル名を変えず、Finderでリポジトリの `ios/Configuration/` フォルダへコピーする。Xcodeにファイル参照を追加する必要はない。ビルド時にファイルがあればアプリに同梱し、なければ計測なしでビルドできる。Bundle IDが違うファイルではビルドを止める。Firebase SDKはこのPRのSwift Package設定から取得するので、二重に追加しない。
 4. この設定ファイルはgitignore対象。所有者のプロジェクト設定はこのPRには入っていない。設定ファイルにはアプリを識別する情報があるが、サービスアカウントの秘密鍵を代わりに入れてはいけない。CIや公開リポジトリへ管理者資格情報を登録する必要もない。
-5. アプリの「ほかの遊び方・記録」→「プレイ状況の計測」で、自分のテスト端末の設定をオンにする。初期設定はオフ。設定ファイルがない、またはBundle IDが違う場合は有効にできないが、ゲームは動く。
+5. アプリの「右上の「…」（遊び方・記録・設定）」→「プレイ状況の計測」で、自分のテスト端末の設定をオンにする。初期設定はオフ。設定ファイルがない、またはBundle IDが違う場合は有効にできないが、ゲームは動く。
 
 SDKはXcode 16系との互換性を保つためFirebase iOS SDK 12.4.0に固定。`FirebaseAnalyticsCore` と `FirebaseCore` のみをリンクし、広告ID用の `FirebaseAnalyticsIdentitySupport` は追加しない。SDK更新時はプライバシーマニフェストとCIも再確認する。
 
@@ -63,6 +63,6 @@ Analyticsの管理画面で、必要なパラメータをイベントスコー�
 
 ## 追加した報告機能と参考
 
-「ほかの遊び方・記録」→「不具合・感想を送る」で、内容の分類と文章を入力し、問題番号・難易度・バージョン・OS・進捗を添えた報告文を作る。共有／コピー、または公開GitHub Issueの作成画面へ進める。送信・投稿は利用者が行い、報告内容をAnalyticsへ自動送信しない。
+「右上の「…」（遊び方・記録・設定）」→「不具合・感想を送る」で、内容の分類と文章を入力し、問題番号・難易度・バージョン・OS・進捗を添えた報告文を作る。共有／コピー、または公開GitHub Issueの作成画面へ進める。送信・投稿は利用者が行い、報告内容をAnalyticsへ自動送信しない。
 
 参考：[Simon Tatham's Puzzles for Androidの貢献・不具合報告案内](https://github.com/chrisboyle/sgtpuzzles#readme)、そこで紹介されている[不具合報告の書き方](https://www.chiark.greenend.org.uk/~sgtatham/bugs.html)。再現に必要な情報を添える考え方を採用した。コードや画像は流用していない。アプリ自体の実機比較プレイは未実施。

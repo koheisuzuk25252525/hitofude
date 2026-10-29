@@ -5,6 +5,55 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testPlayScreenReservesActionsAndFitsBoardOnPhoneSizes() {
+        let ideal = PlayScreenGeometry(width: 351, height: nil, headerHeight: 220, footerHeight: 94)
+        XCTAssertEqual(ideal.size.height, 522) // ViewThatFits must measure the minimum, not a full-width board.
+        // Available sizes after safe areas and screen padding, portrait and landscape.
+        for size in [CGSize(width: 351, height: 600), CGSize(width: 366, height: 734),
+                     CGSize(width: 406, height: 810), CGSize(width: 536, height: 330)] {
+            for footerHeight: CGFloat in [58, 94, 130] {
+                let plan = PlayScreenGeometry(width: size.width, height: size.height,
+                                              headerHeight: 220, footerHeight: footerHeight)
+                XCTAssertEqual(plan.board.width, plan.board.height)
+                XCTAssertGreaterThanOrEqual(plan.board.width, 192)
+                XCTAssertGreaterThanOrEqual(plan.board.minY, plan.header.maxY + 8)
+                XCTAssertLessThanOrEqual(plan.board.maxY + 8, plan.footer.minY + 0.01)
+                XCTAssertLessThanOrEqual(plan.board.maxX, plan.size.width)
+                XCTAssertEqual(plan.footer.maxY, plan.size.height)
+                if size.height >= 600 {
+                    XCTAssertEqual(plan.size.height, size.height) // No scroll in portrait.
+                } else {
+                    XCTAssertGreaterThan(plan.size.height, size.height) // Request accessible fallback.
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testScreenLayoutMeasuresActualHeaderAndCompletionActions() {
+        for width: CGFloat in [351, 366, 406] {
+            let root = PlayScreenLayout {
+                VStack {
+                    Text("ヒトフデ").font(.title2)
+                    Text("ふつう　36/36　0:23")
+                    DifficultyTabs(selected: .medium, isLoading: false, select: { _ in })
+                }
+                Color.clear
+                VStack {
+                    Text("ひと筆、完成！")
+                    HStack {
+                        Button("もう一問") {}.frame(minHeight: 44)
+                        Button("結果・共有") {}.frame(minHeight: 44)
+                    }
+                }
+            }
+            let host = UIHostingController(rootView: root)
+            let size = host.sizeThatFits(in: CGSize(width: width, height: 600))
+            XCTAssertEqual(size.width, width, accuracy: 1)
+            XCTAssertEqual(size.height, 600, accuracy: 1)
+        }
+    }
+
     @MainActor
     func testDifficultyTabsFitPhoneWidthsAndLargeTypeWithoutHorizontalScrolling() {
         for typeSize in [DynamicTypeSize.large, .accessibility5] {
