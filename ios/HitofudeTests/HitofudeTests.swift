@@ -1,9 +1,30 @@
 import XCTest
 import JavaScriptCore
 import AVFoundation
+import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    @MainActor
+    func testDifficultyTabsFitPhoneWidthsAndLargeTypeWithoutHorizontalScrolling() {
+        for typeSize in [DynamicTypeSize.large, .accessibility5] {
+            for screenWidth in [375.0, 390.0, 430.0] {
+                let availableWidth = screenWidth - 40 // GameView's horizontal padding.
+                let root = DifficultyTabs(selected: .easy, isLoading: false, select: { _ in })
+                    .environment(\.dynamicTypeSize, typeSize)
+                let host = UIHostingController(rootView: root)
+                let size = host.sizeThatFits(in: CGSize(width: availableWidth, height: 2000))
+                XCTAssertLessThanOrEqual(size.width, availableWidth + 1)
+                XCTAssertGreaterThan(size.height, 44)
+                XCTAssertLessThan(size.height, 2000)
+            }
+        }
+        let host = UIHostingController(rootView: DifficultyTabs(selected: .daily, isLoading: false, select: { _ in }))
+        let narrow = host.sizeThatFits(in: CGSize(width: 335, height: 2000))
+        let wide = host.sizeThatFits(in: CGSize(width: 520, height: 2000))
+        XCTAssertGreaterThan(narrow.height, wide.height)
+    }
+
     func testSynthesizedSoundsDecodeAndClimbAcrossEveryBoardSize() throws {
         for total in [16, 25, 36, 49, 64] {
             XCTAssertEqual(SoundWave.stepFrequency(index: 0, total: total), 130.81, accuracy: 0.001)

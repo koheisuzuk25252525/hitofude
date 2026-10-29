@@ -49,7 +49,9 @@ struct GameView: View {
         ScrollView {
             VStack(spacing: 20) {
                 header
-                modes
+                DifficultyTabs(selected: game.mode, isLoading: game.isLoading) { mode in
+                    Task { await game.load(mode) }
+                }
                 if let greeting = game.returnGreeting {
                     ReturnGreetingView(greeting: greeting)
                 }
@@ -266,38 +268,6 @@ struct GameView: View {
                 Text("ベスト \(GameModel.timeString(best))").font(.caption).foregroundStyle(.secondary)
             }
         }
-    }
-
-    // All five modes remain visible; narrow screens and large text wrap into rows.
-    private var modes: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("難易度・きょうの1問").font(.caption).foregroundStyle(.secondary)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(playModes) { mode in modeButton(mode).fixedSize(horizontal: true, vertical: false) }
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
-                    ForEach(playModes) { mode in modeButton(mode) }
-                }
-            }
-        }
-    }
-
-    private var playModes: [GameMode] { [.daily, .easy, .medium, .hard, .oni] }
-
-    private func modeButton(_ mode: GameMode) -> some View {
-        Button { Task { await game.load(mode) } } label: {
-            Text(mode.title).font(.subheadline.bold())
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(game.mode == mode ? palette.accent : palette.soft, in: Capsule())
-                .foregroundStyle(game.mode == mode ? palette.background : palette.foreground)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(game.mode == mode ? .isSelected : [])
-        .accessibilityIdentifier("mode-" + mode.rawValue)
-        .disabled(game.isLoading)
     }
 
     private var controls: some View {
@@ -566,3 +536,43 @@ private struct ProgressCalendarView: View {
 }
 
 #Preview { GameView() }
+
+struct DifficultyTabs: View {
+    let selected: GameMode
+    let isLoading: Bool
+    let select: (GameMode) -> Void
+    @Environment(\.hitofudePalette) private var palette
+
+    // All five modes remain visible; narrow screens and large text wrap into rows.
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("難易度・きょうの1問").font(.caption).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(playModes) { mode in modeButton(mode).fixedSize(horizontal: true, vertical: false) }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                    ForEach(playModes) { mode in modeButton(mode) }
+                }
+            }
+        }
+    }
+
+    private var playModes: [GameMode] { [.daily, .easy, .medium, .hard, .oni] }
+
+    private func modeButton(_ mode: GameMode) -> some View {
+        Button { select(mode) } label: {
+            Text(mode.title).font(.subheadline.bold())
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(selected == mode ? palette.accent : palette.soft, in: Capsule())
+                .foregroundStyle(selected == mode ? palette.background : palette.foreground)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected == mode ? .isSelected : [])
+        .accessibilityIdentifier("mode-" + mode.rawValue)
+        .disabled(isLoading)
+    }
+
+}
