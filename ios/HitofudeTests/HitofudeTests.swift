@@ -11,7 +11,7 @@ final class HitofudeTests: XCTestCase {
         // Available sizes after safe areas and screen padding, portrait and landscape.
         for size in [CGSize(width: 351, height: 600), CGSize(width: 366, height: 734),
                      CGSize(width: 406, height: 810), CGSize(width: 536, height: 330)] {
-            for footerHeight: CGFloat in [58, 94, 130] {
+            for footerHeight in [CGFloat(58), 94, 130] {
                 let plan = PlayScreenGeometry(width: size.width, height: size.height,
                                               headerHeight: 220, footerHeight: footerHeight)
                 XCTAssertEqual(plan.board.width, plan.board.height)
@@ -31,7 +31,7 @@ final class HitofudeTests: XCTestCase {
 
     @MainActor
     func testScreenLayoutMeasuresActualHeaderAndCompletionActions() {
-        for width: CGFloat in [351, 366, 406] {
+        for width in [CGFloat(351), 366, 406] {
             let root = PlayScreenLayout {
                 VStack {
                     Text("ヒトフデ").font(.title2)
