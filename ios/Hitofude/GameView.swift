@@ -32,7 +32,8 @@ private extension EnvironmentValues {
 }
 
 struct GameView: View {
-    @StateObject private var game = GameModel(analytics: PlayAnalytics.shared)
+    @StateObject private var game = GameModel(analytics: PlayAnalytics.shared, sounds: GameAudio.shared)
+    @ObservedObject private var audio = GameAudio.shared
     @State private var showsAnalytics = false
     @State private var showsFeedback = false
     @State private var feedbackContext = ""
@@ -48,6 +49,7 @@ struct GameView: View {
         ScrollView {
             VStack(spacing: 20) {
                 header
+                modes
                 if let greeting = game.returnGreeting {
                     ReturnGreetingView(greeting: greeting)
                 }
@@ -96,7 +98,6 @@ struct GameView: View {
                 }.buttonStyle(.bordered).disabled(game.isLoading) }
                 DisclosureGroup("ほかの遊び方・記録") {
                     VStack(spacing: 16) {
-                        modes
                         Button("不具合・感想を送る") {
                             feedbackContext = game.feedbackContext
                             showsFeedback = true
@@ -145,6 +146,7 @@ struct GameView: View {
                     Text("1のマスから、上下左右になぞります。ななめには進めません。")
                     Text("数字のあるマスは、その順番に通りましょう。すべてのマスを1回ずつ通ればクリア！")
                     Text("ひとつ前のマスへ戻ると、1手取り消せます。マスを順にタップしても遊べます。")
+                    Text("難易度は盤面の上で選べます。効果音は画面上のスピーカーで切り替えます。消音モード中は鳴りません。")
                     Button("れんしゅうする") {
                         showsHelp = false
                         Task { await game.load(.tutorial) }
@@ -232,7 +234,15 @@ struct GameView: View {
             HStack {
                 (Text("ヒト") + Text("フデ").foregroundColor(palette.accent))
                     .font(.system(.largeTitle, design: .rounded, weight: .black))
+                    .lineLimit(1).minimumScaleFactor(0.5)
                 Spacer()
+                Button { audio.setEnabled(!audio.enabled) } label: {
+                    Image(systemName: audio.enabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                        .font(.title2).frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("効果音")
+                .accessibilityValue(audio.enabled ? "オン" : "オフ")
+                .accessibilityHint(audio.enabled ? "効果音をオフにする" : "効果音をオンにする")
                 Button { showsHelp = true } label: {
                     Image(systemName: "questionmark.circle").font(.title2).frame(width: 44, height: 44)
                 }.accessibilityLabel("あそびかた")
@@ -258,21 +268,36 @@ struct GameView: View {
         }
     }
 
+    // All five modes remain visible; narrow screens and large text wrap into rows.
     private var modes: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(GameMode.allCases.filter { $0 != .tutorial }) { mode in
-                    Button { Task { await game.load(mode) } } label: {
-                        Text(mode.title).font(.subheadline.bold())
-                            .padding(.horizontal, 18).frame(minHeight: 44)
-                            .background(game.mode == mode ? palette.accent : palette.soft, in: Capsule())
-                            .foregroundStyle(game.mode == mode ? palette.background : palette.foreground)
-                    }
-                    .accessibilityAddTraits(game.mode == mode ? .isSelected : [])
-                    .disabled(game.isLoading)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("難易度・きょうの1問").font(.caption).foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(playModes) { mode in modeButton(mode).fixedSize(horizontal: true, vertical: false) }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                    ForEach(playModes) { mode in modeButton(mode) }
                 }
             }
         }
+    }
+
+    private var playModes: [GameMode] { [.daily, .easy, .medium, .hard, .oni] }
+
+    private func modeButton(_ mode: GameMode) -> some View {
+        Button { Task { await game.load(mode) } } label: {
+            Text(mode.title).font(.subheadline.bold())
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(game.mode == mode ? palette.accent : palette.soft, in: Capsule())
+                .foregroundStyle(game.mode == mode ? palette.background : palette.foreground)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(game.mode == mode ? .isSelected : [])
+        .accessibilityIdentifier("mode-" + mode.rawValue)
+        .disabled(game.isLoading)
     }
 
     private var controls: some View {
