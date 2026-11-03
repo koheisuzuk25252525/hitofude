@@ -27,6 +27,7 @@
 :root{
   --bg:#f8f3e8; --fg:#1f1d22; --muted:#7a7468; --line:#d9d2c3; --cell:#fffdf8;
   --acc:#e8553a; --acc2:#2a9d9b; --acc3:#f6b53a; --ok:#2a9d6b; --pill:#efe7d6;
+  --hint-ink:#1f1d22;
   --font-display:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
   --font-body:"Hiragino Sans","Noto Sans JP",system-ui,-apple-system,sans-serif;
 }
@@ -96,6 +97,10 @@ h1 span{color:var(--acc)}
 .c.glow{animation:glow 1s ease-in-out 3;box-shadow:inset 0 0 0 4px var(--acc3)}
 @keyframes glow{50%{box-shadow:inset 0 0 0 4px var(--acc3),0 0 18px 4px var(--acc3)}}
 .c.wrong{box-shadow:inset 0 0 0 4px var(--acc)}
+.hint-marker{position:absolute;right:3px;top:3px;z-index:3;min-width:1.4em;padding:2px;border-radius:50%;
+  background:var(--acc3);color:var(--hint-ink);font:700 12px/1.2 var(--font-body);text-align:center;pointer-events:none}
+.hint-status{margin:0;padding:8px 12px;max-width:560px;box-sizing:border-box;border-radius:10px;
+  background:var(--pill);color:var(--fg);font-size:13px;line-height:1.5;text-align:center}
 .loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--cell);z-index:7;color:var(--muted);font-family:var(--font-display)}
 .loading p{margin:0}
 .spin{width:44px;height:44px;flex:0 0 44px;border-radius:50%;border:4px solid var(--line);border-top-color:var(--acc);animation:sp .8s linear infinite}
@@ -184,6 +189,7 @@ h1 span{color:var(--acc)}
   <button class="btn" id="clear">やり直す</button>
   <button class="btn" id="new">別の問題</button>
 </div>
+<p class="hint-status" id="hintStatus" role="status" hidden></p>
 <p class="hint" id="instructions">1 から指でなぞって、すべてのマスを1回ずつ通り、いちばん大きい数字で終わる。数字は「何番目に通るか」。</p>
 <footer class="credits" id="credits" hidden aria-label="制作者・作品一覧"></footer>
 <div class="toast" id="toast" role="status"></div>
@@ -374,7 +380,7 @@ function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show')
 let genToken=0;
 function newGame(m,forcedSeed){
   mode=m;const tok=++genToken;
-  cancelGeneration();endGesture();
+  cancelGeneration();endGesture();clearHint();
   seed=forcedSeed!==undefined?forcedSeed:(m==='daily'?todayKey():(Date.now()^Math.floor(Math.random()*1e9))>>>0);
   const [R,C]=SIZES[m];
   puz=null;route=[];finished=false;finalMs=null;drawing=false;activePointer=null;lastPointer=null;mistakes=0;hintsLeft=HINTS;hintsUsed=0;VOICE.stop();
@@ -399,23 +405,28 @@ function newGame(m,forcedSeed){
   }
   $('loading').hidden=true;apply(makePuzzle(R,C,diff,mulberry32(seed)));return Promise.resolve();
 }
-function syncHint(){$('hintLeft').textContent=hintsLeft;$('hint').disabled=!puz||hintsLeft<=0||mode==='tutorial'}
+function syncHint(){$('hintLeft').textContent=hintsLeft;$('hint').disabled=finished||!puz||hintsLeft<=0||mode==='tutorial'||!!document.querySelector('.hint-marker')}
+function clearHint(){
+  for(const cell of $('cells').children){cell.classList.remove('glow','wrong');cell.querySelector('.hint-marker')?.remove()}
+  $('hintStatus').hidden=true;$('hintStatus').textContent='';syncHint();
+}
 function useHint(){
-  if(finished||!puz||hintsLeft<=0)return;
+  if(finished||!puz||hintsLeft<=0||mode==='tutorial'||document.querySelector('.hint-marker'))return;
   const sol=puz.path;
   let ok=0;while(ok<route.length&&route[ok][0]===sol[ok][0]&&route[ok][1]===sol[ok][1])ok++;
-  const cells=$('cells').children;
-  for(const d of cells)d.classList.remove('glow','wrong');
-  if(ok<route.length){
-    route=route.slice(0,ok);drawRoute();toast(`${ok}マス目までは正解。そこから違う道です`);
-    const lastOk=route[route.length-1];if(lastOk)cells[lastOk[0]*puz.C+lastOk[1]].classList.add('wrong');
-  }else{
-    const nx=sol[route.length];if(!nx)return;
-    const d=cells[nx[0]*puz.C+nx[1]];d.classList.add('glow');d.addEventListener('animationend',()=>d.classList.remove('glow'),{once:true});
-    toast(`${route.length+1}番目はここ`);
-  }
+  const next=sol[ok];if(!next)return;
+  const corrected=ok<route.length;
+  clearHint();
+  if(corrected){route=route.slice(0,ok);drawRoute()}
+  const cell=$('cells').children[next[0]*puz.C+next[1]];
+  cell.classList.add('glow');
+  const marker=document.createElement('span');marker.className='hint-marker';marker.textContent=ok+1;
+  marker.setAttribute('aria-label',`${ok+1}番目に進むマス`);cell.appendChild(marker);
+  $('hintStatus').textContent=(corrected?`${ok}マス目まで戻しました。`:'')+`${ok+1}番目は、色と数字の目印があるマスです。`;
+  $('hintStatus').hidden=false;
   hintsLeft--;hintsUsed++;syncHint();SFX.init();SFX.tone(1318.5,{type:'sine',dur:0.35,vol:0.4});
   if(!t0)startTimer();
+  cell.scrollIntoView({block:'nearest',inline:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
 }
 const COACH=[
   'まず <b>1</b> のマスに指をおいてね',
@@ -472,15 +483,15 @@ function cellAt(x,y){const el=document.elementFromPoint(x,y);return el&&el.close
 function tryStep(r,c){
   if(finished||!puz)return;
   const last=route[route.length-1];
-  if(!last){ if(puz.clues.get(r+','+c)===1){route.push([r,c]);startTimer();drawRoute();SFX.start();VOICE.say(1);popCell(r,c,'just');buzz(8)}else{flash(r,c);SFX.bad()};return }
+  if(!last){ if(puz.clues.get(r+','+c)===1){clearHint();route.push([r,c]);startTimer();drawRoute();SFX.start();VOICE.say(1);popCell(r,c,'just');buzz(8)}else{flash(r,c);SFX.bad()};return }
   if(last[0]===r&&last[1]===c)return;
   const prev=route[route.length-2];
-  if(prev&&prev[0]===r&&prev[1]===c){route.pop();drawRoute();SFX.back(route.length-1);return}   // backtrack
+  if(prev&&prev[0]===r&&prev[1]===c){clearHint();route.pop();drawRoute();SFX.back(route.length-1);return}   // backtrack
   if(Math.abs(last[0]-r)+Math.abs(last[1]-c)!==1)return;
   if(route.some(p=>p[0]===r&&p[1]===c)){mistakes++;flash(r,c);SFX.bad();return}
   const k=puz.clues.get(r+','+c),step=route.length+1;
   if(k!==undefined&&k!==step){mistakes++;flash(r,c);SFX.bad();buzz([20,30,20]);toast(`そのマスは ${k} 番目`);return}
-  route.push([r,c]);drawRoute();
+  clearHint();route.push([r,c]);drawRoute();
   const i=route.length-1;
   VOICE.say(i+1);
   if(k!==undefined){SFX.hit(i);popCell(r,c,'hit');buzz(15)}else{SFX.step(i);popCell(r,c,'just');buzz(6)}
@@ -491,7 +502,7 @@ function flash(r,c){const d=$('cells').children[r*puz.C+c];d.classList.remove('b
 function finish(){
   if(finished||!puz)return;
   finalMs=Math.max(0,Date.now()-t0);finished=true;clearInterval(timerId);
-  const ms=finalMs;$('timer').textContent=fmt(ms);
+  const ms=finalMs;$('timer').textContent=fmt(ms);syncHint();
   if(mode!=='tutorial'){const best=store.get('best:'+mode);if(best===null||ms<best){store.set('best:'+mode,ms);$('best').hidden=false;$('best').textContent='ベスト '+fmt(ms)}}
   if(mode==='tutorial')store.set('tut',1);
   document.getElementById('coach')?.remove();
@@ -633,8 +644,8 @@ board.addEventListener('pointercancel',releasePointer);
 board.addEventListener('lostpointercapture',releasePointer);
 $('retryGeneration').onclick=()=>newGame(mode,seed);
 $('leaveGeneration').onclick=()=>newGame('medium');
-$('undo').onclick=()=>{if(finished||!puz)return;route.pop();drawRoute()};
-$('clear').onclick=()=>{if(finished||!puz)return;route=[];drawRoute();VOICE.stop()};
+$('undo').onclick=()=>{if(finished||!puz)return;clearHint();route.pop();drawRoute()};
+$('clear').onclick=()=>{if(finished||!puz)return;clearHint();route=[];drawRoute();VOICE.stop()};
 $('new').onclick=()=>newGame(mode==='daily'||mode==='tutorial'?'medium':mode);
 $('hint').onclick=useHint;
 $('help').onclick=()=>newGame('tutorial');
