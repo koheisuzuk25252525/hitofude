@@ -5,6 +5,42 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    @MainActor
+    func testCompletionPanelFitsAllActionsWithoutScrollingOnPortraitPhones() {
+        for width in [CGFloat(296), 351, 366, 406] {
+            for isChallenge in [false, true] {
+                let panel = CompletionPanel(
+                    summary: "むずかしい  12:34", message: "今月10問達成！「夜空」の色が使えるようになったよ",
+                    verdict: isChallenge ? "あなたの勝ち！" : nil,
+                    challengeURL: URL(string: "https://example.com/#c-h-1-754"),
+                    challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {}
+                )
+                // Measure ALL content at its natural height; a clipped/scrolling viewport cannot pass.
+                let host = UIHostingController(rootView: panel.fullContent)
+                let size = host.sizeThatFits(in: CGSize(width: width - 32, height: 2000))
+                XCTAssertLessThanOrEqual(size.width, width - 32 + 1)
+                XCTAssertLessThanOrEqual(size.height + 32, 544, "All result actions must fit: width \(width), challenge \(isChallenge)")
+                XCTAssertGreaterThan(size.height, 200)
+            }
+        }
+    }
+
+    @MainActor
+    func testCompletionPanelUsesBoundedFallbackForLargeTextAndLandscape() {
+        let panel = CompletionPanel(
+            summary: "ふつう  0:23", message: "自己ベストを更新！", verdict: nil,
+            challengeURL: URL(string: "https://example.com/#c-m-1-23"), challengeMessage: "挑戦", shareText: "結果",
+            next: {}, retry: {}, calendar: {}, dismiss: {}
+        )
+        for typeSize in [DynamicTypeSize.large, .accessibility3] {
+            let host = UIHostingController(rootView: panel.environment(\.dynamicTypeSize, typeSize))
+            let size = host.sizeThatFits(in: CGSize(width: 351, height: 320))
+            XCTAssertLessThanOrEqual(size.width, 352)
+            XCTAssertLessThanOrEqual(size.height, 321)
+            XCTAssertGreaterThan(size.height, 44)
+        }
+    }
+
     func testPlayScreenReservesActionsAndFitsBoardOnPhoneSizes() {
         let flexible = PlayScreenGeometry(width: .infinity, height: .infinity, headerHeight: 220, footerHeight: 94)
         XCTAssertTrue(flexible.size.width.isFinite)

@@ -50,7 +50,7 @@ struct GameView: View {
     @State private var challengeInput = ""
     @State private var challengeError: String?
 
-    var body: some View {
+    private var playingScreen: some View {
         ViewThatFits(in: .vertical) {
             PlayScreenLayout(minimumBoardSide: 192) {
                 screenHeader
@@ -70,6 +70,19 @@ struct GameView: View {
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.background.ignoresSafeArea())
+    }
+
+    var body: some View {
+        ZStack {
+            playingScreen
+                .allowsHitTesting(!showsResult)
+                .accessibilityHidden(showsResult)
+            if showsResult && game.isFinished {
+                Color.black.opacity(0.2).ignoresSafeArea()
+                    .accessibilityHidden(true)
+                completion.padding(12)
+            }
+        }
         .foregroundStyle(palette.foreground)
         .tint(palette.accent)
         .environment(\.hitofudePalette, palette)
@@ -81,13 +94,7 @@ struct GameView: View {
         .onChange(of: showsMore) { _, _ in updateActivity() }
         .onChange(of: showsResult) { _, _ in updateActivity() }
         .sheet(isPresented: $showsMore, onDismiss: openPendingDestination) { moreSheet }
-        .sheet(isPresented: $showsResult, onDismiss: openPendingDestination) {
-            NavigationStack {
-                ScrollView { completion.padding(16) }
-                    .navigationTitle("今回の結果")
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsResult = false } } }
-            }
-        }
+        .onChange(of: game.isFinished) { _, finished in showsResult = finished }
         .onChange(of: showsHelp) { _, _ in updateActivity() }
         .onChange(of: showsChallenge) { _, _ in updateActivity() }
         .onChange(of: showsProgress) { _, _ in updateActivity() }
@@ -147,7 +154,7 @@ struct GameView: View {
         if let puzzle = game.puzzle {
             BoardView(game: game, puzzle: puzzle)
                 .overlay {
-                    if game.isPaused {
+                    if game.isPaused && !game.isFinished {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18).fill(.regularMaterial)
                             Text("一時停止中").font(.title2.bold())
@@ -356,34 +363,119 @@ struct GameView: View {
         Button("やり直す") { game.reset() }
     }
     private var completion: some View {
-        VStack(spacing: 14) {
-            Text("ひと筆、完成！").font(.title.bold()).foregroundStyle(palette.accent)
-            Text("\(game.mode.title)  \(GameModel.timeString(game.elapsed(at: Date())))")
-            if let completionMessage = game.completionMessage {
-                Text(completionMessage).multilineTextAlignment(.center)
+        CompletionPanel(
+            summary: "\(game.mode.title)  \(GameModel.timeString(game.elapsed(at: Date())))",
+            message: game.completionMessage,
+            verdict: game.verdict,
+            challengeURL: game.challenge?.url,
+            challengeMessage: "\(game.mode.title)・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。",
+            shareText: game.shareText,
+            next: nextPuzzle,
+            retry: {
+                showsResult = false
+                Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
+            },
+            calendar: { showsProgress = true },
+            dismiss: { showsResult = false }
+        )
+    }
+
+}
+
+/// A screen overlay, independent of the board's size and any underlying scroll position.
+struct CompletionPanel: View {
+    @Environment(\.hitofudePalette) private var palette
+    @AccessibilityFocusState private var titleFocused: Bool
+    let summary: String
+    let message: String?
+    let verdict: String?
+    let challengeURL: URL?
+    let challengeMessage: String
+    let shareText: String
+    let next: () -> Void
+    let retry: () -> Void
+    let calendar: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            // All actions fit together at standard text sizes on portrait iPhones.
+            fullContent.fixedSize(horizontal: false, vertical: true)
+            // Large accessibility text / landscape retain a reachable next action.
+            ScrollView {
+                VStack(spacing: 8) { details; secondaryActions }
+                    .frame(maxWidth: .infinity)
             }
-            Button("もう一問", action: nextPuzzle).buttonStyle(.borderedProminent).controlSize(.large)
-            if let verdict = game.verdict {
-                Text(verdict).font(.headline)
-                Button("同じ問題で再挑戦") {
-                    showsResult = false
-                    Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
-                }.buttonStyle(.bordered)
-            }
-            if let challenge = game.challenge {
-                ShareLink(item: challenge.url,
-                          subject: Text("ヒトフデで対戦しよう"),
-                          message: Text("\(game.mode.title)・\(GameModel.timeString(TimeInterval(challenge.seconds)))・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。")) {
-                    Label("挑戦リンクを送る", systemImage: "person.2.wave.2")
-                }.buttonStyle(.bordered)
-            }
-            ShareLink(item: game.shareText) { Label(game.rival == nil ? "結果を共有" : "対戦結果を返信", systemImage: "square.and.arrow.up") }
-                .buttonStyle(.bordered)
-            Button("達成カレンダーを見る") { showsResult = false; pendingDestination = .progress }
+            .safeAreaInset(edge: .top, spacing: 8) { heading }
+            .safeAreaInset(edge: .bottom, spacing: 8) { nextButton }
         }
-        .padding(20).frame(maxWidth: .infinity)
-        .background(palette.soft, in: RoundedRectangle(cornerRadius: 20))
+        .padding(16)
+        .frame(maxWidth: 440)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(palette.foreground.opacity(0.18)))
+        .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
         .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .onAppear { titleFocused = true }
+    }
+
+    // Exposed internally so tests measure the full, non-scrolling content, not a clipped container.
+    var fullContent: some View {
+        VStack(spacing: 8) { heading; details; nextButton; secondaryActions }
+    }
+
+    private var heading: some View {
+        HStack(spacing: 4) {
+            Text("ひと筆、完成！").font(.title2.bold())
+                .foregroundStyle(palette.accent)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($titleFocused)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                Image(systemName: "xmark.circle.fill").font(.title2)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("結果を閉じて盤面を見る")
+        }
+    }
+
+    private var details: some View {
+        VStack(spacing: 4) {
+            Text(summary).font(.headline)
+            if let message { Text(message).font(.subheadline) }
+            if let verdict { Text(verdict).font(.headline) }
+        }.multilineTextAlignment(.center)
+    }
+
+    private var nextButton: some View {
+        Button(action: next) {
+            Text("もう一問").bold().frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("completion-next-puzzle")
+    }
+
+    private var secondaryActions: some View {
+        VStack(spacing: 4) {
+            if verdict != nil {
+                Button(action: retry) {
+                    Text("同じ問題で再挑戦").frame(maxWidth: .infinity, minHeight: 44)
+                }
+            }
+            if let challengeURL {
+                ShareLink(item: challengeURL, subject: Text("ヒトフデで対戦しよう"), message: Text(challengeMessage)) {
+                    Label("挑戦リンクを送る", systemImage: "person.2.wave.2")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+            }
+            ShareLink(item: shareText) {
+                Label(verdict == nil ? "結果を共有" : "対戦結果を返信", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            Button(action: calendar) {
+                Text("達成カレンダーを見る").frame(maxWidth: .infinity, minHeight: 44)
+            }
+        }
     }
 }
 
