@@ -173,17 +173,18 @@ struct GameView: View {
     }
 
     private var actionDock: some View {
-        VStack(spacing: 6) {
-            if game.isFinished {
-                Text("ひと筆、完成！").font(.headline).foregroundStyle(palette.accent)
-                HStack {
-                    Button(action: nextPuzzle) { Text("もう一問").frame(maxWidth: .infinity, minHeight: 44) }
-                        .buttonStyle(.borderedProminent).accessibilityIdentifier("next-puzzle")
-                    Button("結果・共有") { showsResult = true }
-                        .buttonStyle(.bordered).frame(minHeight: 44)
-                }
-            } else if game.puzzle != nil {
+        ZStack {
+            if game.puzzle != nil {
+                // Retain the same layout height on completion; the board must not jump.
                 controls
+                    .opacity(game.isFinished ? 0 : 1)
+                    .allowsHitTesting(!game.isFinished)
+                    .accessibilityHidden(game.isFinished)
+                if game.isFinished && !showsResult {
+                    Button("結果を表示") { showsResult = true }
+                        .frame(minHeight: 44)
+                        .buttonStyle(.bordered)
+                }
             }
         }.fixedSize(horizontal: false, vertical: true)
     }
@@ -479,21 +480,29 @@ struct CompletionPanel: View {
     }
 }
 
+// Pointer history is not display state. Mutating it must not invalidate SwiftUI on
+// every pixel while the finger stays inside the same cell.
+private final class BoardInput {
+    var trace = BoardTrace()
+}
+
 private struct BoardView: View {
     @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
-    @State private var trace = BoardTrace()
+    @State private var input = BoardInput()
     @GestureState private var isTracing = false
 
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let step = width / CGFloat(puzzle.size)
+            let orders = Dictionary(uniqueKeysWithValues: game.route.enumerated().map { ($0.element, $0.offset + 1) })
+            let nextClue = game.nextClue
             ZStack {
                 RoundedRectangle(cornerRadius: 18).fill(palette.cell)
                 ForEach(0..<(puzzle.size * puzzle.size), id: \.self) { index in
-                    cellView(index: index, step: step)
+                    cellView(index: index, step: step, order: orders[Cell(row: index / puzzle.size, column: index % puzzle.size)], nextClue: nextClue)
                 }
                 Path { path in
                     for (index, cell) in game.route.enumerated() {
@@ -511,23 +520,22 @@ private struct BoardView: View {
             .highPriorityGesture(DragGesture(minimumDistance: 0)
                 .updating($isTracing) { _, state, _ in state = true }
                 .onChanged { value in
-                    for cell in trace.cells(to: value.location, width: width, size: puzzle.size) { game.step(cell) }
+                    game.trace(input.trace.cells(to: value.location, width: width, size: puzzle.size))
                 }
-                .onEnded { _ in trace.reset() })
-            .onChange(of: isTracing) { _, tracing in if !tracing { trace.reset() } }
-            .onChange(of: game.isPaused) { _, _ in trace.reset() }
-            .onChange(of: game.seed) { _, _ in trace.reset() }
-            .onChange(of: width) { _, _ in trace.reset() }
+                .onEnded { _ in input.trace.reset() })
+            .onChange(of: isTracing) { _, tracing in if !tracing { input.trace.reset() } }
+            .onChange(of: game.isPaused) { _, _ in input.trace.reset() }
+            .onChange(of: game.seed) { _, _ in input.trace.reset() }
+            .onChange(of: width) { _, _ in input.trace.reset() }
         }
     }
 
-    private func cellView(index: Int, step: CGFloat) -> some View {
+    private func cellView(index: Int, step: CGFloat, order: Int?, nextClue: Int?) -> some View {
         let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
-        let order = game.route.firstIndex(of: cell).map { $0 + 1 }
         let clue = puzzle.clues[cell]
         let clueLabel = clue.map { "数字\($0)" } ?? "空白"
         let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
-        let isTarget = clue != nil && clue == game.nextClue
+        let isTarget = clue != nil && clue == nextClue
         let isHint = game.highlighted == cell
         let hintLabel = isHint ? "ヒント：次に進むマス" : isTarget ? "次に目指す数字" : ""
         return Button { game.step(cell) } label: {

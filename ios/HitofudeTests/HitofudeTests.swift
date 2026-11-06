@@ -5,6 +5,44 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testQueuedAudioRejectsNotesOlderThanStopOrNewerPlayback() {
+        var gate = SoundPlaybackGate()
+        XCTAssertTrue(gate.accept(sequence: 1)) // First note.
+        XCTAssertTrue(gate.accept(sequence: 4)) // Mute/background stop overtakes queued notes.
+        XCTAssertFalse(gate.accept(sequence: 2))
+        XCTAssertFalse(gate.accept(sequence: 3))
+        XCTAssertTrue(gate.accept(sequence: 6)) // New playback after resume.
+        XCTAssertFalse(gate.accept(sequence: 5)) // Old stop must not silence new playback.
+        XCTAssertFalse(gate.accept(sequence: 6))
+    }
+
+    @MainActor
+    func testFastInputBatchSavesOnceAndRestoresEveryAcceptedCell() async throws {
+        let name = "hitofude-batch-tests-\(UUID())"
+        let defaults = try XCTUnwrap(CountingSessionDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.tutorial)
+        let writes = defaults.sessionWrites
+        game.trace(Array(Puzzle.tutorial.path.prefix(6)))
+        XCTAssertEqual(game.route, Array(Puzzle.tutorial.path.prefix(6)))
+        XCTAssertEqual(defaults.sessionWrites, writes + 1)
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.route, game.route)
+        // Duplicate samples do not write. Backtracking still persists within this sample.
+        let afterRestore = defaults.sessionWrites
+        game.trace([Puzzle.tutorial.path[5], Puzzle.tutorial.path[5]])
+        XCTAssertEqual(defaults.sessionWrites, afterRestore)
+        game.trace([Puzzle.tutorial.path[4], Puzzle.tutorial.path[3]])
+        XCTAssertEqual(game.route, Array(Puzzle.tutorial.path.prefix(4)))
+        XCTAssertEqual(defaults.sessionWrites, afterRestore + 1)
+        game.trace(Array(Puzzle.tutorial.path.dropFirst(4)))
+        XCTAssertTrue(game.isFinished)
+        XCTAssertEqual(game.route, Puzzle.tutorial.path)
+        XCTAssertEqual(defaults.sessionWrites, afterRestore + 2)
+    }
+
     @MainActor
     func testCompletionPanelFitsAllActionsWithoutScrollingOnPortraitPhones() {
         for width in [CGFloat(296), 351, 366, 406] {
@@ -875,7 +913,7 @@ private final class TestPlayRecorder: PlayEventRecording {
 private final class TestSoundOutput: SoundOutput {
     var playCount = 0
     var stopCount = 0
-    func play(_ data: Data) { playCount += 1 }
+    func play(_ sound: GameSound) { playCount += 1 }
     func stop() { stopCount += 1 }
 }
 
@@ -885,4 +923,12 @@ private final class TestGameSounds: GameSoundPlaying {
     var stops = 0
     func play(_ sound: GameSound) { events.append(sound) }
     func stop() { stops += 1 }
+}
+
+private final class CountingSessionDefaults: UserDefaults, @unchecked Sendable {
+    var sessionWrites = 0
+    override func set(_ value: Any?, forKey defaultName: String) {
+        if defaultName == "hitofude.session.v1" { sessionWrites += 1 }
+        super.set(value, forKey: defaultName)
+    }
 }

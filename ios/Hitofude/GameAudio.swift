@@ -3,7 +3,7 @@ import Combine
 import Foundation
 
 // No audio assets or network access: short tones follow the Web version's pitches.
-enum GameSound: Equatable {
+enum GameSound: Hashable, Sendable {
     case step(index: Int, total: Int)
     case clear
 }
@@ -16,36 +16,87 @@ protocol GameSoundPlaying {
 
 @MainActor
 protocol SoundOutput {
-    func play(_ data: Data)
+    func play(_ sound: GameSound)
     func stop()
+}
+
+// All synthesis, player construction and audio-session work is confined to this actor,
+// never the main actor that receives pointer events and draws the board.
+private actor SoundRenderer {
+    private var players: [AVAudioPlayer] = []
+    private var waves: [GameSound: Data] = [:]
+    private var gate = SoundPlaybackGate()
+    private var sessionActive = false
+
+    func play(_ sound: GameSound, sequence: UInt64, issuedAt: TimeInterval) {
+        guard gate.accept(sequence: sequence) else { return }
+        // Do not build a delayed queue of notes behind a fast stroke or an interruption.
+        let lifetime: TimeInterval = sound == .clear ? 0.4 : 0.12
+        guard ProcessInfo.processInfo.systemUptime - issuedAt <= lifetime else { return }
+        let data: Data
+        if let cached = waves[sound] { data = cached }
+        else {
+            data = SoundWave.data(for: sound)
+            if waves.count >= 65 { waves.removeAll(keepingCapacity: true) }
+            waves[sound] = data
+        }
+        do {
+            if !sessionActive {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.ambient, mode: .default)
+                try session.setActive(true)
+                sessionActive = true
+            }
+            players.removeAll { !$0.isPlaying }
+            if players.count >= 4 { players.removeFirst().stop() }
+            let player = try AVAudioPlayer(data: data)
+            player.volume = 0.35
+            guard ProcessInfo.processInfo.systemUptime - issuedAt <= lifetime else { return }
+            if player.play() { players.append(player) }
+        } catch { stopPlayers() }
+    }
+
+    func stop(sequence: UInt64) {
+        guard gate.accept(sequence: sequence) else { return }
+        stopPlayers()
+    }
+
+    private func stopPlayers() {
+        players.forEach { $0.stop() }
+        players.removeAll()
+        if sessionActive {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            sessionActive = false
+        }
+    }
+}
+
+/// Reject stale asynchronous work, including notes submitted before mute/background.
+struct SoundPlaybackGate {
+    private var lastSequence: UInt64 = 0
+    mutating func accept(sequence: UInt64) -> Bool {
+        guard sequence > lastSequence else { return false }
+        lastSequence = sequence
+        return true
+    }
 }
 
 @MainActor
 private final class DeviceSoundOutput: SoundOutput {
-    private var players: [AVAudioPlayer] = []
+    private let renderer = SoundRenderer()
+    private var sequence: UInt64 = 0
 
-    func play(_ data: Data) {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            // Respect the silent switch and mix with music from other apps.
-            try session.setCategory(.ambient, mode: .default)
-            try session.setActive(true)
-            players.removeAll { !$0.isPlaying }
-            // Fast strokes may emit many steps; keep latency and memory bounded.
-            if players.count >= 4 { players.removeFirst().stop() }
-            let player = try AVAudioPlayer(data: data)
-            player.volume = 0.35
-            if player.play() { players.append(player) }
-        } catch {
-            // Audio interruptions or unavailable output must never block play.
-            stop()
-        }
+    func play(_ sound: GameSound) {
+        sequence += 1
+        let id = sequence
+        let issuedAt = ProcessInfo.processInfo.systemUptime
+        Task { await renderer.play(sound, sequence: id, issuedAt: issuedAt) }
     }
 
     func stop() {
-        players.forEach { $0.stop() }
-        players.removeAll()
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        sequence += 1
+        let id = sequence
+        Task { await renderer.stop(sequence: id) }
     }
 }
 
@@ -71,7 +122,7 @@ final class GameAudio: ObservableObject, GameSoundPlaying {
 
     func play(_ sound: GameSound) {
         guard enabled else { return }
-        output.play(SoundWave.data(for: sound))
+        output.play(sound)
     }
 
     func stop() { output.stop() }
