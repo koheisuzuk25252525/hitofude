@@ -5,6 +5,19 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testCoalescedTouchHistoryPreservesFastCornersAndBacktracking() {
+        var trace = BoardTrace()
+        let corner = trace.cells(samples: [CGPoint(x: 5, y: 5), CGPoint(x: 35, y: 5), CGPoint(x: 35, y: 35)], width: 40, size: 4)
+        XCTAssertEqual(corner, [Cell(row: 0, column: 0), Cell(row: 0, column: 1), Cell(row: 0, column: 2),
+                                Cell(row: 0, column: 3), Cell(row: 1, column: 3), Cell(row: 2, column: 3), Cell(row: 3, column: 3)])
+        let reverse = trace.cells(samples: [CGPoint(x: 35, y: 25), CGPoint(x: 35, y: 5), CGPoint(x: 15, y: 5)], width: 40, size: 4)
+        XCTAssertEqual(reverse, [Cell(row: 3, column: 3), Cell(row: 2, column: 3), Cell(row: 1, column: 3),
+                                 Cell(row: 0, column: 3), Cell(row: 0, column: 2), Cell(row: 0, column: 1)])
+        trace.reset()
+        let outside = trace.cells(samples: [CGPoint(x: 5, y: 5), CGPoint(x: -5, y: 5), CGPoint(x: 35, y: 35)], width: 40, size: 4)
+        XCTAssertEqual(outside, [Cell(row: 0, column: 0), Cell(row: 3, column: 3)]) // No invented bridge.
+    }
+
     func testQueuedAudioRejectsNotesOlderThanStopOrNewerPlayback() {
         var gate = SoundPlaybackGate()
         XCTAssertTrue(gate.accept(sequence: 1)) // First note.

@@ -480,18 +480,106 @@ struct CompletionPanel: View {
     }
 }
 
-// Pointer history is not display state. Mutating it must not invalidate SwiftUI on
-// every pixel while the finger stays inside the same cell.
-private final class BoardInput {
-    var trace = BoardTrace()
+// Receive coalesced UIKit samples without publishing per-pixel SwiftUI state.
+private struct BoardTouchSurface: UIViewRepresentable {
+    let size: Int
+    let identifier: UInt32
+    let enabled: Bool
+    let onCells: ([Cell]) -> Void
+
+    func makeUIView(context: Context) -> BoardTouchView { BoardTouchView() }
+
+    func updateUIView(_ view: BoardTouchView, context: Context) {
+        if view.input.boardSize != size || view.input.identifier != identifier {
+            view.input.cancelStroke()
+        }
+        view.input.boardSize = size
+        view.input.identifier = identifier
+        view.input.onCells = onCells
+        if view.input.isEnabled != enabled { view.input.isEnabled = enabled }
+    }
+}
+
+private final class BoardTouchView: UIView {
+    let input = BoardStrokeRecognizer(target: nil, action: nil)
+    private var previousSize: CGSize = .zero
+
+    init() {
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isMultipleTouchEnabled = true
+        accessibilityElementsHidden = true
+        input.cancelsTouchesInView = true
+        input.delaysTouchesBegan = false
+        addGestureRecognizer(input)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if bounds.size != previousSize { input.cancelStroke(); previousSize = bounds.size }
+    }
+}
+
+private final class BoardStrokeRecognizer: UIGestureRecognizer {
+    var boardSize = 0
+    var identifier: UInt32 = 0
+    var onCells: (([Cell]) -> Void)?
+    private var activeTouch: UITouch?
+    private var trace = BoardTrace()
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard activeTouch == nil, let touch = touches.first else { return }
+        activeTouch = touch
+        trace.reset()
+        state = .began // Claim the board immediately rather than waiting for a scroll threshold.
+        consume(touch, event: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = activeTouch, touches.contains(touch) else { return }
+        state = .changed
+        consume(touch, event: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = activeTouch, touches.contains(touch) else { return }
+        consume(touch, event: event)
+        state = .ended
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { cancelStroke() }
+
+    override func reset() {
+        super.reset()
+        trace.reset()
+        activeTouch = nil
+    }
+
+    func cancelStroke() {
+        if activeTouch != nil { state = .cancelled }
+        trace.reset()
+        activeTouch = nil
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false // The scroll fallback must not steal a stroke that began on the board.
+    }
+
+    private func consume(_ touch: UITouch, event: UIEvent) {
+        guard let view else { return }
+        let history = event.coalescedTouches(for: touch) ?? []
+        let samples = (history.isEmpty ? [touch] : history).map { $0.location(in: view) }
+        let cells = trace.cells(samples: samples, width: view.bounds.width, size: boardSize)
+        if !cells.isEmpty { onCells?(cells) }
+    }
 }
 
 private struct BoardView: View {
     @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
-    @State private var input = BoardInput()
-    @GestureState private var isTracing = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -517,16 +605,12 @@ private struct BoardView: View {
             .padding(0)
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.foreground, lineWidth: 2).allowsHitTesting(false))
             .contentShape(Rectangle())
-            .highPriorityGesture(DragGesture(minimumDistance: 0)
-                .updating($isTracing) { _, state, _ in state = true }
-                .onChanged { value in
-                    game.trace(input.trace.cells(to: value.location, width: width, size: puzzle.size))
-                }
-                .onEnded { _ in input.trace.reset() })
-            .onChange(of: isTracing) { _, tracing in if !tracing { input.trace.reset() } }
-            .onChange(of: game.isPaused) { _, _ in input.trace.reset() }
-            .onChange(of: game.seed) { _, _ in input.trace.reset() }
-            .onChange(of: width) { _, _ in input.trace.reset() }
+            .overlay {
+                BoardTouchSurface(size: puzzle.size, identifier: game.seed,
+                                  enabled: !game.isPaused && !game.isFinished && !game.isLoading,
+                                  onCells: game.trace)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
