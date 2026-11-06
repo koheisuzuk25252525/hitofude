@@ -368,7 +368,7 @@ struct GameView: View {
             message: game.completionMessage,
             verdict: game.verdict,
             challengeURL: game.challenge?.url,
-            challengeMessage: "\(game.mode.title)・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。",
+            challengeMessage: "\(game.mode.title)・\(GameModel.timeString(TimeInterval(game.challenge?.seconds ?? 0)))・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。",
             shareText: game.shareText,
             next: nextPuzzle,
             retry: {
