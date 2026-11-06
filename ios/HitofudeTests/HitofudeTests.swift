@@ -34,12 +34,14 @@ final class HitofudeTests: XCTestCase {
         let name = "hitofude-batch-tests-\(UUID())"
         let defaults = try XCTUnwrap(CountingSessionDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
-        let game = GameModel(defaults: defaults)
+        let sound = TestGameSounds()
+        let game = GameModel(defaults: defaults, sounds: sound)
         await game.load(.tutorial)
         let writes = defaults.sessionWrites
         game.trace(Array(Puzzle.tutorial.path.prefix(6)))
         XCTAssertEqual(game.route, Array(Puzzle.tutorial.path.prefix(6)))
         XCTAssertEqual(defaults.sessionWrites, writes + 1)
+        XCTAssertEqual(sound.events, [.step(index: 5, total: 16)])
         let restored = GameModel(defaults: defaults)
         await restored.startInitialGame()
         XCTAssertEqual(restored.route, game.route)
@@ -52,6 +54,7 @@ final class HitofudeTests: XCTestCase {
         XCTAssertEqual(defaults.sessionWrites, afterRestore + 1)
         game.trace(Array(Puzzle.tutorial.path.dropFirst(4)))
         XCTAssertTrue(game.isFinished)
+        XCTAssertEqual(sound.events, [.step(index: 5, total: 16), .clear])
         XCTAssertEqual(game.route, Puzzle.tutorial.path)
         XCTAssertEqual(defaults.sessionWrites, afterRestore + 2)
     }
