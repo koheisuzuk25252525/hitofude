@@ -53,6 +53,7 @@ private actor SoundRenderer {
             player.volume = 0.35
             guard ProcessInfo.processInfo.systemUptime - issuedAt <= lifetime else { return }
             if player.play() { players.append(player) }
+            else { stopPlayers() } // Retry activation on the next note after an interruption.
         } catch { stopPlayers() }
     }
 

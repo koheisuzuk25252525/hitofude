@@ -117,7 +117,7 @@ final class GameModel: ObservableObject {
         sampleSelectionChanged = false
         defer {
             isTracingSample = false
-            if sampleSelectionChanged { selectionFeedback.selectionChanged() }
+            if sampleSelectionChanged && !isFinished { selectionFeedback.selectionChanged() }
             if let sampleSound { sounds?.play(sampleSound) }
             sampleSound = nil
             if sampleNeedsSave { sampleNeedsSave = false; saveSession() }
