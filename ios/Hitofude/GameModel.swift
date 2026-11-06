@@ -140,7 +140,10 @@ final class GameModel: ObservableObject {
             return
         }
         beginClock()
-        route.append(cell); highlighted = nil; message = nil
+        let keepsOpeningHint = route.isEmpty && highlighted == puzzle.path[1]
+        route.append(cell)
+        if keepsOpeningHint { message = hintGuidance }
+        else { highlighted = nil; message = nil }
         let note = GameSound.step(index: route.count - 1, total: puzzle.size * puzzle.size)
         if isTracingSample { sampleSelectionChanged = true; sampleSound = note }
         else { selectionFeedback.selectionChanged(); sounds?.play(note) }
@@ -162,12 +165,25 @@ final class GameModel: ObservableObject {
         let corrected = correct < route.count
         route = Array(route.prefix(correct))
         guard correct < puzzle.path.count else { return }
-        highlighted = puzzle.path[correct]
+        let hintIndex = max(1, correct)
+        highlighted = puzzle.path[hintIndex]
         beginClock()
         hintsLeft -= 1
         record(.hint)
-        message = (corrected ? "\(correct)マス目まで戻しました。" : "") + "\(correct + 1)番目は、目印のマスです"
+        message = (corrected ? "\(correct)マス目まで戻しました。" : "") + hintGuidance
         saveSession()
+    }
+
+    var hintNumber: Int? {
+        guard let highlighted, let index = puzzle?.path.firstIndex(of: highlighted) else { return nil }
+        return index + 1
+    }
+
+    private var hintGuidance: String {
+        guard let hintNumber else { return "" }
+        return route.isEmpty && hintNumber == 2
+            ? "「1」から、目印の2マス目へ進んでね"
+            : "\(hintNumber)番目は、目印のマスです"
     }
 
     func elapsed(at date: Date) -> TimeInterval {
@@ -320,7 +336,7 @@ final class GameModel: ObservableObject {
         segmentStart = session.hasStarted && !isFinished && !isPaused ? now() : nil
         best = defaults.object(forKey: "hitofude.best.\(mode.rawValue)") as? Double
         if !isFinished { record(.restored) }
-        message = highlighted == nil ? "前のつづきから再開しました" : "前のつづきです。\(route.count + 1)番目は、目印のマスです"
+        message = highlighted == nil ? "前のつづきから再開しました" : "前のつづきです。" + hintGuidance
         return true
     }
 
