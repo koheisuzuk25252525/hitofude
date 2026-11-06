@@ -92,7 +92,6 @@ struct GameView: View {
             updateActivity()
         }
         .onChange(of: showsMore) { _, _ in updateActivity() }
-        .onChange(of: showsResult) { _, _ in updateActivity() }
         .sheet(isPresented: $showsMore, onDismiss: openPendingDestination) { moreSheet }
         .onChange(of: game.isFinished) { _, finished in showsResult = finished }
         .onChange(of: showsHelp) { _, _ in updateActivity() }
@@ -239,7 +238,8 @@ struct GameView: View {
     }
 
     private func updateActivity() {
-        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || showsResult || pendingDestination != nil
+        // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
+        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
