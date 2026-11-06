@@ -1,8 +1,153 @@
 import XCTest
 import JavaScriptCore
+import AVFoundation
+import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testPlayScreenReservesActionsAndFitsBoardOnPhoneSizes() {
+        let flexible = PlayScreenGeometry(width: .infinity, height: .infinity, headerHeight: 220, footerHeight: 94)
+        XCTAssertTrue(flexible.size.width.isFinite)
+        XCTAssertTrue(flexible.size.height.isFinite)
+        XCTAssertTrue(flexible.board.minX.isFinite)
+        let ideal = PlayScreenGeometry(width: 351, height: nil, headerHeight: 220, footerHeight: 94)
+        XCTAssertEqual(ideal.size.height, 522) // ViewThatFits must measure the minimum, not a full-width board.
+        // Available sizes after safe areas and screen padding, portrait and landscape.
+        for size in [CGSize(width: 351, height: 600), CGSize(width: 366, height: 734),
+                     CGSize(width: 406, height: 810), CGSize(width: 536, height: 330)] {
+            for footerHeight in [CGFloat(58), 94, 130] {
+                let plan = PlayScreenGeometry(width: size.width, height: size.height,
+                                              headerHeight: 220, footerHeight: footerHeight)
+                XCTAssertEqual(plan.board.width, plan.board.height)
+                XCTAssertGreaterThanOrEqual(plan.board.width, 192)
+                XCTAssertGreaterThanOrEqual(plan.board.minY, plan.header.maxY + 8)
+                XCTAssertLessThanOrEqual(plan.board.maxY + 8, plan.footer.minY + 0.01)
+                XCTAssertLessThanOrEqual(plan.board.maxX, plan.size.width)
+                XCTAssertEqual(plan.footer.maxY, plan.size.height)
+                if size.height >= 600 {
+                    XCTAssertEqual(plan.size.height, size.height) // No scroll in portrait.
+                } else {
+                    XCTAssertGreaterThan(plan.size.height, size.height) // Request accessible fallback.
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testScreenLayoutMeasuresActualHeaderAndCompletionActions() {
+        for width in [CGFloat(351), 366, 406] {
+            let root = PlayScreenLayout {
+                VStack {
+                    Text("ヒトフデ").font(.title2)
+                    Text("ふつう　36/36　0:23")
+                    DifficultyTabs(selected: .medium, isLoading: false, select: { _ in })
+                }
+                Color.clear
+                VStack {
+                    Text("ひと筆、完成！")
+                    HStack {
+                        Button("もう一問") {}.frame(minHeight: 44)
+                        Button("結果・共有") {}.frame(minHeight: 44)
+                    }
+                }
+            }
+            let host = UIHostingController(rootView: root)
+            let size = host.sizeThatFits(in: CGSize(width: width, height: 600))
+            XCTAssertEqual(size.width, width, accuracy: 1)
+            XCTAssertEqual(size.height, 600, accuracy: 1)
+        }
+    }
+
+    @MainActor
+    func testDifficultyTabsFitPhoneWidthsAndLargeTypeWithoutHorizontalScrolling() {
+        for typeSize in [DynamicTypeSize.large, .accessibility5] {
+            for screenWidth in [375.0, 390.0, 430.0] {
+                let availableWidth = screenWidth - 40 // GameView's horizontal padding.
+                let root = DifficultyTabs(selected: .easy, isLoading: false, select: { _ in })
+                    .environment(\.dynamicTypeSize, typeSize)
+                let host = UIHostingController(rootView: root)
+                let size = host.sizeThatFits(in: CGSize(width: availableWidth, height: 2000))
+                XCTAssertLessThanOrEqual(size.width, availableWidth + 1)
+                XCTAssertGreaterThan(size.height, 44)
+                XCTAssertLessThan(size.height, 2000)
+            }
+        }
+        let host = UIHostingController(rootView: DifficultyTabs(selected: .daily, isLoading: false, select: { _ in }))
+        let narrow = host.sizeThatFits(in: CGSize(width: 335, height: 2000))
+        let wide = host.sizeThatFits(in: CGSize(width: 520, height: 2000))
+        XCTAssertGreaterThan(narrow.height, wide.height)
+    }
+
+    func testSynthesizedSoundsDecodeAndClimbAcrossEveryBoardSize() throws {
+        for total in [16, 25, 36, 49, 64] {
+            XCTAssertEqual(SoundWave.stepFrequency(index: 0, total: total), 130.81, accuracy: 0.001)
+            XCTAssertEqual(SoundWave.stepFrequency(index: total - 1, total: total), 130.81 * 16, accuracy: 0.001)
+            let pitches = (0..<total).map { SoundWave.stepFrequency(index: $0, total: total) }
+            XCTAssertTrue(zip(pitches, pitches.dropFirst()).allSatisfy { pair in pair.0 < pair.1 })
+            let player = try AVAudioPlayer(data: SoundWave.data(for: .step(index: total - 1, total: total)))
+            XCTAssertEqual(player.duration, 0.2, accuracy: 0.002)
+            XCTAssertEqual(player.numberOfChannels, 1)
+        }
+        let clear = try AVAudioPlayer(data: SoundWave.data(for: .clear))
+        XCTAssertEqual(clear.duration, 1.6, accuracy: 0.002)
+    }
+
+    @MainActor
+    func testSoundPreferencePersistsAndMuteStopsPlaybackImmediately() throws {
+        let name = "hitofude-sound-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let output = TestSoundOutput()
+        let audio = GameAudio(defaults: defaults, output: output)
+        XCTAssertTrue(audio.enabled)
+        audio.play(.step(index: 0, total: 25))
+        XCTAssertEqual(output.playCount, 1)
+        audio.setEnabled(false)
+        XCTAssertEqual(output.stopCount, 1)
+        audio.play(.clear)
+        XCTAssertEqual(output.playCount, 1)
+        let restored = GameAudio(defaults: defaults, output: output)
+        XCTAssertFalse(restored.enabled)
+        restored.setEnabled(true)
+        restored.play(.clear)
+        XCTAssertEqual(output.playCount, 2)
+        restored.stop()
+        XCTAssertTrue(restored.enabled)
+        XCTAssertEqual(output.stopCount, 2)
+    }
+
+    @MainActor
+    func testSoundsOnlyFollowAcceptedStepsAndClearAndStopOnPauseOrReset() async throws {
+        let name = "hitofude-sound-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let sound = TestGameSounds()
+        let game = GameModel(defaults: defaults, sounds: sound)
+        await game.load(.tutorial)
+        XCTAssertTrue(sound.events.isEmpty)
+        game.step(Puzzle.tutorial.path[2]) // Invalid start.
+        game.step(Puzzle.tutorial.path[0])
+        game.step(Puzzle.tutorial.path[0]) // Repeated pointer sample.
+        game.step(Puzzle.tutorial.path[2]) // Jump over a cell.
+        XCTAssertEqual(sound.events, [.step(index: 0, total: 16)])
+        game.setActive(false)
+        let stopped = sound.stops
+        XCTAssertGreaterThan(stopped, 0)
+        game.step(Puzzle.tutorial.path[1])
+        XCTAssertEqual(sound.events.count, 1)
+        game.setActive(true)
+        XCTAssertEqual(sound.events.count, 1) // No replay after resuming.
+        game.undo()
+        XCTAssertEqual(sound.events.count, 1)
+        for cell in Puzzle.tutorial.path { game.step(cell) }
+        XCTAssertEqual(sound.events.filter { $0 == .clear }.count, 1)
+        XCTAssertEqual(Array(sound.events.suffix(2)), [.step(index: 15, total: 16), .clear])
+        game.step(Puzzle.tutorial.path.last!)
+        XCTAssertEqual(sound.events.filter { $0 == .clear }.count, 1)
+        game.reset()
+        XCTAssertEqual(sound.stops, stopped + 1)
+    }
+
     func testEveryDifficultyHasUniqueSolutionAndStableSeed() throws {
         let url = try XCTUnwrap(Bundle.main.url(forResource: "Generator", withExtension: "js"))
         let context = try XCTUnwrap(JSContext())
@@ -688,4 +833,20 @@ private final class TestAnalyticsClient: AnalyticsClient {
 private final class TestPlayRecorder: PlayEventRecording {
     var events: [(PlayEvent, [String: Any])] = []
     func record(_ event: PlayEvent, parameters: [String: Any]) { events.append((event, parameters)) }
+}
+
+@MainActor
+private final class TestSoundOutput: SoundOutput {
+    var playCount = 0
+    var stopCount = 0
+    func play(_ data: Data) { playCount += 1 }
+    func stop() { stopCount += 1 }
+}
+
+@MainActor
+private final class TestGameSounds: GameSoundPlaying {
+    var events: [GameSound] = []
+    var stops = 0
+    func play(_ sound: GameSound) { events.append(sound) }
+    func stop() { stops += 1 }
 }
