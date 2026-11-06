@@ -20,7 +20,30 @@ for (const [size, difficulty] of [[5, 'easy'], [6, 'medium'], [7, 'hard'], [8, '
     })()`, web));
     const actual = JSON.parse(vm.runInContext(`nativePuzzle(${size},'${difficulty}',${seed})`, native));
     assert.deepEqual(actual, expected, `Web/native parity ${size} seed ${seed}`);
+    // Parity alone would miss a malformed route shared by both implementations.
+    assert.equal(actual.path.length, size * size, `path length ${size} seed ${seed}`);
+    for (const [index, cell] of actual.path.entries()) {
+      assert.ok(Number.isInteger(cell.row) && Number.isInteger(cell.column)
+        && cell.row >= 0 && cell.row < size && cell.column >= 0 && cell.column < size,
+      `path cell in bounds: ${size} seed ${seed} step ${index + 1}`);
+      if (index > 0) {
+        const prev = actual.path[index - 1];
+        assert.equal(Math.abs(cell.row - prev.row) + Math.abs(cell.column - prev.column), 1,
+          `orthogonal step: ${size} seed ${seed} step ${index + 1}`);
+      }
+    }
     assert.equal(new Set(actual.path.map(cell => `${cell.row},${cell.column}`)).size, size * size);
+    const clueNumbers = new Set();
+    for (const clue of actual.clues) {
+      assert.ok(Number.isInteger(clue.value) && clue.value >= 1 && clue.value <= size * size,
+        `clue number in range: ${size} seed ${seed}`);
+      assert.ok(!clueNumbers.has(clue.value), `duplicate clue number: ${size} seed ${seed}`);
+      clueNumbers.add(clue.value);
+      assert.deepEqual({row:clue.row, column:clue.column}, actual.path[clue.value - 1],
+        `clue matches route position: ${size} seed ${seed} clue ${clue.value}`);
+    }
+    assert.ok(clueNumbers.has(1) && clueNumbers.has(size * size),
+      `start and finish clues: ${size} seed ${seed}`);
     const clues = JSON.stringify(actual.clues.map(({row, column, value}) => [`${row},${column}`, value]));
     assert.equal(vm.runInContext(`countSolutions(${size},${size},new Map(${clues}))`, native), 1);
     checked++;
