@@ -136,7 +136,7 @@ struct GameView: View {
     private var screenHeader: some View {
         VStack(spacing: 6) {
             header
-            DifficultyTabs(selected: game.mode, isLoading: game.isLoading) { mode in
+            DifficultySelector(selected: game.mode, isLoading: game.isLoading) { mode in
                 Task { await game.load(mode) }
             }
             if let greeting = game.returnGreeting {
@@ -623,7 +623,7 @@ private struct BoardView: View {
         let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
         let isTarget = clue != nil && clue == nextClue
         let isHint = game.highlighted == cell
-        let hintLabel = isHint ? "ヒント：次に進むマス" : isTarget ? "次に目指す数字" : ""
+        let hintLabel = isHint ? "ヒント：\(game.hintNumber ?? game.route.count + 1)番目に進むマス" : isTarget ? "次に目指す数字" : ""
         return Button { game.step(cell) } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
@@ -636,7 +636,7 @@ private struct BoardView: View {
                 }
                 if isHint {
                     RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, lineWidth: 3)
-                    VStack { HStack { Spacer(); Text("\(game.route.count + 1)").font(.caption2.bold()).padding(3).background(palette.accent, in: Capsule()).foregroundStyle(palette.background) }; Spacer() }
+                    VStack { HStack { Spacer(); Text("\(game.hintNumber ?? game.route.count + 1)").font(.caption2.bold()).padding(3).background(palette.accent, in: Capsule()).foregroundStyle(palette.background) }; Spacer() }
                 } else if isTarget {
                     RoundedRectangle(cornerRadius: 8).strokeBorder(palette.foreground.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [3]))
                 }
@@ -762,41 +762,43 @@ private struct ProgressCalendarView: View {
 
 #Preview { GameView() }
 
-struct DifficultyTabs: View {
+struct DifficultySelector: View {
     let selected: GameMode
     let isLoading: Bool
     let select: (GameMode) -> Void
     @Environment(\.hitofudePalette) private var palette
 
-    // All five modes remain visible; narrow screens and large text wrap into rows.
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("難易度・きょうの1問").font(.caption).foregroundStyle(.secondary)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(playModes) { mode in modeButton(mode).fixedSize(horizontal: true, vertical: false) }
+        Menu {
+            ForEach([GameMode.daily, .easy, .medium, .hard, .oni]) { mode in
+                Button { select(mode) } label: {
+                    if selected == mode {
+                        Label(mode.title, systemImage: "checkmark")
+                    } else {
+                        Text(mode.title)
+                    }
                 }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
-                    ForEach(playModes) { mode in modeButton(mode) }
-                }
+                .accessibilityIdentifier("mode-" + mode.rawValue)
             }
-        }
-    }
-
-    private var playModes: [GameMode] { [.daily, .easy, .medium, .hard, .oni] }
-
-    private func modeButton(_ mode: GameMode) -> some View {
-        Button { select(mode) } label: {
-            Text(mode.title).font(.subheadline.bold())
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background(selected == mode ? palette.accent : palette.soft, in: Capsule())
-                .foregroundStyle(selected == mode ? palette.background : palette.foreground)
+        } label: {
+            HStack(spacing: 8) {
+                Text("難易度").foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Text(selected.title).bold()
+                Image(systemName: "chevron.down").font(.caption.bold())
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(palette.soft, in: RoundedRectangle(cornerRadius: 14))
+            .foregroundStyle(palette.foreground)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(selected == mode ? .isSelected : [])
-        .accessibilityIdentifier("mode-" + mode.rawValue)
+        .accessibilityLabel("難易度")
+        .accessibilityValue(selected.title)
+        .accessibilityHint("タップして難易度や、きょうの1問を選びます")
+        .accessibilityIdentifier("difficulty-selector")
         .disabled(isLoading)
     }
 

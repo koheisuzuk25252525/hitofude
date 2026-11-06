@@ -130,7 +130,7 @@ final class HitofudeTests: XCTestCase {
                 VStack {
                     Text("ヒトフデ").font(.title2)
                     Text("ふつう　36/36　0:23")
-                    DifficultyTabs(selected: .medium, isLoading: false, select: { _ in })
+                    DifficultySelector(selected: .medium, isLoading: false, select: { _ in })
                 }
                 Color.clear
                 VStack {
@@ -149,23 +149,24 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
-    func testDifficultyTabsFitPhoneWidthsAndLargeTypeWithoutHorizontalScrolling() {
+    func testDifficultySelectorFitPhoneWidthsAndLargeTypeWithoutHorizontalScrolling() {
         for typeSize in [DynamicTypeSize.large, .accessibility5] {
             for screenWidth in [375.0, 390.0, 430.0] {
                 let availableWidth = screenWidth - 40 // GameView's horizontal padding.
-                let root = DifficultyTabs(selected: .easy, isLoading: false, select: { _ in })
+                let root = DifficultySelector(selected: .easy, isLoading: false, select: { _ in })
                     .environment(\.dynamicTypeSize, typeSize)
                 let host = UIHostingController(rootView: root)
                 let size = host.sizeThatFits(in: CGSize(width: availableWidth, height: 2000))
                 XCTAssertLessThanOrEqual(size.width, availableWidth + 1)
-                XCTAssertGreaterThan(size.height, 44)
+                XCTAssertGreaterThanOrEqual(size.height, 44)
                 XCTAssertLessThan(size.height, 2000)
             }
         }
-        let host = UIHostingController(rootView: DifficultyTabs(selected: .daily, isLoading: false, select: { _ in }))
+        let host = UIHostingController(rootView: DifficultySelector(selected: .daily, isLoading: false, select: { _ in }))
         let narrow = host.sizeThatFits(in: CGSize(width: 335, height: 2000))
         let wide = host.sizeThatFits(in: CGSize(width: 520, height: 2000))
-        XCTAssertGreaterThan(narrow.height, wide.height)
+        XCTAssertEqual(narrow.height, wide.height, accuracy: 1)
+        XCTAssertLessThanOrEqual(narrow.height, 52)
     }
 
     func testSynthesizedSoundsDecodeAndClimbAcrossEveryBoardSize() throws {
@@ -309,7 +310,9 @@ final class HitofudeTests: XCTestCase {
         await game.load(.easy, seed: 1000)
         let puzzle = try XCTUnwrap(game.puzzle)
         game.hint()
-        XCTAssertEqual(game.highlighted, puzzle.path.first)
+        XCTAssertEqual(game.highlighted, puzzle.path[1])
+        XCTAssertEqual(game.hintNumber, 2)
+        XCTAssertTrue(game.route.isEmpty)
         XCTAssertEqual(game.hintsLeft, 2)
         game.step(puzzle.path[0])
         game.step(puzzle.path[1])
@@ -658,12 +661,21 @@ final class HitofudeTests: XCTestCase {
         let puzzle = try XCTUnwrap(restored.puzzle)
         restored.hint()
         XCTAssertEqual(restored.hintsLeft, 2)
-        XCTAssertEqual(restored.highlighted, puzzle.path[0])
+        XCTAssertEqual(restored.highlighted, puzzle.path[1])
+        XCTAssertEqual(restored.hintNumber, 2)
+        XCTAssertTrue(restored.message?.contains("2マス目") == true)
         restored.step(puzzle.path[0]); restored.hint()
-        restored.step(puzzle.path[1]); restored.hint(); restored.hint()
-        XCTAssertEqual(restored.hintsLeft, 0)
+        XCTAssertEqual(restored.highlighted, puzzle.path[1])
+        XCTAssertEqual(restored.hintsLeft, 2)
+        restored.step(puzzle.path[1])
+        XCTAssertNil(restored.highlighted)
+        restored.hint(); restored.hint()
+        XCTAssertEqual(restored.hintsLeft, 1)
         XCTAssertEqual(restored.highlighted, puzzle.path[2])
-        restored.step(puzzle.path[2])
+        restored.step(puzzle.path[2]); restored.hint()
+        XCTAssertEqual(restored.hintsLeft, 0)
+        XCTAssertEqual(restored.highlighted, puzzle.path[3])
+        restored.step(puzzle.path[3])
         XCTAssertNil(restored.highlighted)
     }
 
