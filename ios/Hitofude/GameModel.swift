@@ -26,6 +26,11 @@ final class GameModel: ObservableObject {
     private var pauseReason = "background"
     private let analytics: PlayEventRecording?
     private let sounds: GameSoundPlaying?
+    private let selectionFeedback = UISelectionFeedbackGenerator()
+    private var isTracingSample = false
+    private var sampleNeedsSave = false
+    private var sampleSound: GameSound?
+    private var sampleSelectionChanged = false
     private var accumulated: TimeInterval = 0
     private var segmentStart: Date?
     private let now: () -> Date
@@ -104,6 +109,22 @@ final class GameModel: ObservableObject {
         saveSession()
     }
 
+    /// Preserve every crossed cell, but encode/store only the final state of one input sample.
+    func trace(_ cells: [Cell]) {
+        guard !cells.isEmpty else { return }
+        isTracingSample = true
+        sampleSound = nil
+        sampleSelectionChanged = false
+        defer {
+            isTracingSample = false
+            if sampleSelectionChanged && !isFinished { selectionFeedback.selectionChanged() }
+            if let sampleSound { sounds?.play(sampleSound) }
+            sampleSound = nil
+            if sampleNeedsSave { sampleNeedsSave = false; saveSession() }
+        }
+        for cell in cells { step(cell) }
+    }
+
     func step(_ cell: Cell) {
         guard let puzzle, !isLoading, !isFinished, !isPaused,
               (0..<puzzle.size).contains(cell.row), (0..<puzzle.size).contains(cell.column) else { return }
@@ -120,8 +141,9 @@ final class GameModel: ObservableObject {
         }
         beginClock()
         route.append(cell); highlighted = nil; message = nil
-        UISelectionFeedbackGenerator().selectionChanged()
-        sounds?.play(.step(index: route.count - 1, total: puzzle.size * puzzle.size))
+        let note = GameSound.step(index: route.count - 1, total: puzzle.size * puzzle.size)
+        if isTracingSample { sampleSelectionChanged = true; sampleSound = note }
+        else { selectionFeedback.selectionChanged(); sounds?.play(note) }
         if route.count == puzzle.size * puzzle.size { finish() }
         saveSession()
     }
@@ -129,6 +151,7 @@ final class GameModel: ObservableObject {
     func undo() {
         guard !isFinished, !isPaused, !route.isEmpty else { return }
         route.removeLast(); highlighted = nil; message = nil
+        if isTracingSample { sampleSound = nil; sampleSelectionChanged = false }
         saveSession()
     }
 
@@ -271,6 +294,7 @@ final class GameModel: ObservableObject {
     }
 
     private func saveSession() {
+        if isTracingSample { sampleNeedsSave = true; return }
         guard let puzzle, !isLoading else { return }
         let session = Session(attemptID: attemptID, version: 1, mode: mode, seed: seed, puzzle: puzzle,
                               route: route, hintsLeft: hintsLeft, highlighted: highlighted,
@@ -319,7 +343,7 @@ final class GameModel: ObservableObject {
         accumulated = elapsed(at: now()); segmentStart = nil
         isFinished = true; finishedAt = now()
         record(.complete)
-        sounds?.play(.clear)
+        if isTracingSample { sampleSound = .clear } else { sounds?.play(.clear) }
         let seconds = accumulated
         let improved = best.map { seconds < $0 } ?? false
         if mode == .tutorial {

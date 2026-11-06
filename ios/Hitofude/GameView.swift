@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
 private struct Palette {
     let isNight: Bool
@@ -50,7 +51,7 @@ struct GameView: View {
     @State private var challengeInput = ""
     @State private var challengeError: String?
 
-    var body: some View {
+    private var playingScreen: some View {
         ViewThatFits(in: .vertical) {
             PlayScreenLayout(minimumBoardSide: 192) {
                 screenHeader
@@ -70,6 +71,19 @@ struct GameView: View {
         .frame(maxWidth: 560)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.background.ignoresSafeArea())
+    }
+
+    var body: some View {
+        ZStack {
+            playingScreen
+                .allowsHitTesting(!showsResult)
+                .accessibilityHidden(showsResult)
+            if showsResult && game.isFinished {
+                Color.black.opacity(0.2).ignoresSafeArea()
+                    .accessibilityHidden(true)
+                completion.padding(12)
+            }
+        }
         .foregroundStyle(palette.foreground)
         .tint(palette.accent)
         .environment(\.hitofudePalette, palette)
@@ -79,15 +93,8 @@ struct GameView: View {
             updateActivity()
         }
         .onChange(of: showsMore) { _, _ in updateActivity() }
-        .onChange(of: showsResult) { _, _ in updateActivity() }
         .sheet(isPresented: $showsMore, onDismiss: openPendingDestination) { moreSheet }
-        .sheet(isPresented: $showsResult, onDismiss: openPendingDestination) {
-            NavigationStack {
-                ScrollView { completion.padding(16) }
-                    .navigationTitle("今回の結果")
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsResult = false } } }
-            }
-        }
+        .onChange(of: game.isFinished) { _, finished in showsResult = finished }
         .onChange(of: showsHelp) { _, _ in updateActivity() }
         .onChange(of: showsChallenge) { _, _ in updateActivity() }
         .onChange(of: showsProgress) { _, _ in updateActivity() }
@@ -147,7 +154,7 @@ struct GameView: View {
         if let puzzle = game.puzzle {
             BoardView(game: game, puzzle: puzzle)
                 .overlay {
-                    if game.isPaused {
+                    if game.isPaused && !game.isFinished {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18).fill(.regularMaterial)
                             Text("一時停止中").font(.title2.bold())
@@ -167,17 +174,18 @@ struct GameView: View {
     }
 
     private var actionDock: some View {
-        VStack(spacing: 6) {
-            if game.isFinished {
-                Text("ひと筆、完成！").font(.headline).foregroundStyle(palette.accent)
-                HStack {
-                    Button(action: nextPuzzle) { Text("もう一問").frame(maxWidth: .infinity, minHeight: 44) }
-                        .buttonStyle(.borderedProminent).accessibilityIdentifier("next-puzzle")
-                    Button("結果・共有") { showsResult = true }
-                        .buttonStyle(.bordered).frame(minHeight: 44)
-                }
-            } else if game.puzzle != nil {
+        ZStack {
+            if game.puzzle != nil {
+                // Retain the same layout height on completion; the board must not jump.
                 controls
+                    .opacity(game.isFinished ? 0 : 1)
+                    .allowsHitTesting(!game.isFinished)
+                    .accessibilityHidden(game.isFinished)
+                if game.isFinished && !showsResult {
+                    Button("結果を表示") { showsResult = true }
+                        .frame(minHeight: 44)
+                        .buttonStyle(.bordered)
+                }
             }
         }.fixedSize(horizontal: false, vertical: true)
     }
@@ -232,7 +240,8 @@ struct GameView: View {
     }
 
     private func updateActivity() {
-        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || showsResult || pendingDestination != nil
+        // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
+        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
@@ -356,34 +365,216 @@ struct GameView: View {
         Button("やり直す") { game.reset() }
     }
     private var completion: some View {
-        VStack(spacing: 14) {
-            Text("ひと筆、完成！").font(.title.bold()).foregroundStyle(palette.accent)
-            Text("\(game.mode.title)  \(GameModel.timeString(game.elapsed(at: Date())))")
-            if let completionMessage = game.completionMessage {
-                Text(completionMessage).multilineTextAlignment(.center)
+        CompletionPanel(
+            summary: "\(game.mode.title)  \(GameModel.timeString(game.elapsed(at: Date())))",
+            message: game.completionMessage,
+            verdict: game.verdict,
+            challengeURL: game.challenge?.url,
+            challengeMessage: "\(game.mode.title)・\(GameModel.timeString(TimeInterval(game.challenge?.seconds ?? 0)))・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。",
+            shareText: game.shareText,
+            next: nextPuzzle,
+            retry: {
+                showsResult = false
+                Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
+            },
+            calendar: { showsProgress = true },
+            dismiss: { showsResult = false }
+        )
+    }
+
+}
+
+/// A screen overlay, independent of the board's size and any underlying scroll position.
+struct CompletionPanel: View {
+    @Environment(\.hitofudePalette) private var palette
+    @AccessibilityFocusState private var titleFocused: Bool
+    let summary: String
+    let message: String?
+    let verdict: String?
+    let challengeURL: URL?
+    let challengeMessage: String
+    let shareText: String
+    let next: () -> Void
+    let retry: () -> Void
+    let calendar: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            // All actions fit together at standard text sizes on portrait iPhones.
+            fullContent.fixedSize(horizontal: false, vertical: true)
+            // Large accessibility text / landscape retain a reachable next action.
+            ScrollView {
+                VStack(spacing: 8) { details; secondaryActions }
+                    .frame(maxWidth: .infinity)
             }
-            Button("もう一問", action: nextPuzzle).buttonStyle(.borderedProminent).controlSize(.large)
-            if let verdict = game.verdict {
-                Text(verdict).font(.headline)
-                Button("同じ問題で再挑戦") {
-                    showsResult = false
-                    Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
-                }.buttonStyle(.bordered)
-            }
-            if let challenge = game.challenge {
-                ShareLink(item: challenge.url,
-                          subject: Text("ヒトフデで対戦しよう"),
-                          message: Text("\(game.mode.title)・\(GameModel.timeString(TimeInterval(challenge.seconds)))・ヒント使用\(3 - game.hintsLeft)回。このタイムに挑戦！アプリの「リンクで対戦」にリンクを貼り付けてね。")) {
-                    Label("挑戦リンクを送る", systemImage: "person.2.wave.2")
-                }.buttonStyle(.bordered)
-            }
-            ShareLink(item: game.shareText) { Label(game.rival == nil ? "結果を共有" : "対戦結果を返信", systemImage: "square.and.arrow.up") }
-                .buttonStyle(.bordered)
-            Button("達成カレンダーを見る") { showsResult = false; pendingDestination = .progress }
+            .safeAreaInset(edge: .top, spacing: 8) { heading }
+            .safeAreaInset(edge: .bottom, spacing: 8) { nextButton }
         }
-        .padding(20).frame(maxWidth: .infinity)
-        .background(palette.soft, in: RoundedRectangle(cornerRadius: 20))
+        .padding(16)
+        .frame(maxWidth: 440)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(palette.foreground.opacity(0.18)))
+        .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
         .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isModal)
+        .onAppear { titleFocused = true }
+    }
+
+    // Exposed internally so tests measure the full, non-scrolling content, not a clipped container.
+    var fullContent: some View {
+        VStack(spacing: 8) { heading; details; nextButton; secondaryActions }
+    }
+
+    private var heading: some View {
+        HStack(spacing: 4) {
+            Text("ひと筆、完成！").font(.title2.bold())
+                .foregroundStyle(palette.accent)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($titleFocused)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                Image(systemName: "xmark.circle.fill").font(.title2)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("結果を閉じて盤面を見る")
+        }
+    }
+
+    private var details: some View {
+        VStack(spacing: 4) {
+            Text(summary).font(.headline)
+            if let message { Text(message).font(.subheadline) }
+            if let verdict { Text(verdict).font(.headline) }
+        }.multilineTextAlignment(.center)
+    }
+
+    private var nextButton: some View {
+        Button(action: next) {
+            Text("もう一問").bold().frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("completion-next-puzzle")
+    }
+
+    private var secondaryActions: some View {
+        VStack(spacing: 4) {
+            if verdict != nil {
+                Button(action: retry) {
+                    Text("同じ問題で再挑戦").frame(maxWidth: .infinity, minHeight: 44)
+                }
+            }
+            if let challengeURL {
+                ShareLink(item: challengeURL, subject: Text("ヒトフデで対戦しよう"), message: Text(challengeMessage)) {
+                    Label("挑戦リンクを送る", systemImage: "person.2.wave.2")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+            }
+            ShareLink(item: shareText) {
+                Label(verdict == nil ? "結果を共有" : "対戦結果を返信", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            Button(action: calendar) {
+                Text("達成カレンダーを見る").frame(maxWidth: .infinity, minHeight: 44)
+            }
+        }
+    }
+}
+
+// Receive coalesced UIKit samples without publishing per-pixel SwiftUI state.
+private struct BoardTouchSurface: UIViewRepresentable {
+    let size: Int
+    let identifier: UInt32
+    let enabled: Bool
+    let onCells: ([Cell]) -> Void
+
+    func makeUIView(context: Context) -> BoardTouchView { BoardTouchView() }
+
+    func updateUIView(_ view: BoardTouchView, context: Context) {
+        if view.input.boardSize != size || view.input.identifier != identifier {
+            view.input.cancelStroke()
+        }
+        view.input.boardSize = size
+        view.input.identifier = identifier
+        view.input.onCells = onCells
+        view.isUserInteractionEnabled = enabled
+        if view.input.isEnabled != enabled { view.input.isEnabled = enabled }
+    }
+}
+
+private final class BoardTouchView: UIView {
+    let input = BoardStrokeRecognizer(target: nil, action: nil)
+    private var previousSize: CGSize = .zero
+
+    init() {
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isMultipleTouchEnabled = true
+        accessibilityElementsHidden = true
+        input.cancelsTouchesInView = true
+        input.delaysTouchesBegan = false
+        addGestureRecognizer(input)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if bounds.size != previousSize { input.cancelStroke(); previousSize = bounds.size }
+    }
+}
+
+private final class BoardStrokeRecognizer: UIGestureRecognizer {
+    var boardSize = 0
+    var identifier: UInt32 = 0
+    var onCells: (([Cell]) -> Void)?
+    private var activeTouch: UITouch?
+    private var trace = BoardTrace()
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard activeTouch == nil, let touch = touches.first else { return }
+        activeTouch = touch
+        trace.reset()
+        state = .began // Claim the board immediately rather than waiting for a scroll threshold.
+        consume(touch, event: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = activeTouch, touches.contains(touch) else { return }
+        state = .changed
+        consume(touch, event: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = activeTouch, touches.contains(touch) else { return }
+        consume(touch, event: event)
+        state = .ended
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { cancelStroke() }
+
+    override func reset() {
+        super.reset()
+        trace.reset()
+        activeTouch = nil
+    }
+
+    func cancelStroke() {
+        if activeTouch != nil { state = .cancelled }
+        trace.reset()
+        activeTouch = nil
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false // The scroll fallback must not steal a stroke that began on the board.
+    }
+
+    private func consume(_ touch: UITouch, event: UIEvent) {
+        guard let view else { return }
+        let history = event.coalescedTouches(for: touch) ?? []
+        let samples = (history.isEmpty ? [touch] : history).map { $0.location(in: view) }
+        let cells = trace.cells(samples: samples, width: view.bounds.width, size: boardSize)
+        if !cells.isEmpty { onCells?(cells) }
     }
 }
 
@@ -391,17 +582,17 @@ private struct BoardView: View {
     @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
-    @State private var trace = BoardTrace()
-    @GestureState private var isTracing = false
 
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let step = width / CGFloat(puzzle.size)
+            let orders = Dictionary(uniqueKeysWithValues: game.route.enumerated().map { ($0.element, $0.offset + 1) })
+            let nextClue = game.nextClue
             ZStack {
                 RoundedRectangle(cornerRadius: 18).fill(palette.cell)
                 ForEach(0..<(puzzle.size * puzzle.size), id: \.self) { index in
-                    cellView(index: index, step: step)
+                    cellView(index: index, step: step, order: orders[Cell(row: index / puzzle.size, column: index % puzzle.size)], nextClue: nextClue)
                 }
                 Path { path in
                     for (index, cell) in game.route.enumerated() {
@@ -416,26 +607,21 @@ private struct BoardView: View {
             .padding(0)
             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.foreground, lineWidth: 2).allowsHitTesting(false))
             .contentShape(Rectangle())
-            .highPriorityGesture(DragGesture(minimumDistance: 0)
-                .updating($isTracing) { _, state, _ in state = true }
-                .onChanged { value in
-                    for cell in trace.cells(to: value.location, width: width, size: puzzle.size) { game.step(cell) }
-                }
-                .onEnded { _ in trace.reset() })
-            .onChange(of: isTracing) { _, tracing in if !tracing { trace.reset() } }
-            .onChange(of: game.isPaused) { _, _ in trace.reset() }
-            .onChange(of: game.seed) { _, _ in trace.reset() }
-            .onChange(of: width) { _, _ in trace.reset() }
+            .overlay {
+                BoardTouchSurface(size: puzzle.size, identifier: game.seed,
+                                  enabled: !game.isPaused && !game.isFinished && !game.isLoading,
+                                  onCells: game.trace)
+                    .accessibilityHidden(true)
+            }
         }
     }
 
-    private func cellView(index: Int, step: CGFloat) -> some View {
+    private func cellView(index: Int, step: CGFloat, order: Int?, nextClue: Int?) -> some View {
         let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
-        let order = game.route.firstIndex(of: cell).map { $0 + 1 }
         let clue = puzzle.clues[cell]
         let clueLabel = clue.map { "数字\($0)" } ?? "空白"
         let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
-        let isTarget = clue != nil && clue == game.nextClue
+        let isTarget = clue != nil && clue == nextClue
         let isHint = game.highlighted == cell
         let hintLabel = isHint ? "ヒント：次に進むマス" : isTarget ? "次に目指す数字" : ""
         return Button { game.step(cell) } label: {
