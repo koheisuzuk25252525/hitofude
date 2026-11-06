@@ -497,6 +497,7 @@ private struct BoardTouchSurface: UIViewRepresentable {
         view.input.boardSize = size
         view.input.identifier = identifier
         view.input.onCells = onCells
+        view.isUserInteractionEnabled = enabled
         if view.input.isEnabled != enabled { view.input.isEnabled = enabled }
     }
 }
