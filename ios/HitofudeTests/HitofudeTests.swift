@@ -824,7 +824,7 @@ final class HitofudeTests: XCTestCase {
         let context = try XCTUnwrap(JSContext())
         let url = try XCTUnwrap(Bundle.main.url(forResource: "Generator", withExtension: "js"))
         context.evaluateScript(try String(contentsOf: url, encoding: .utf8))
-        context.evaluateScript("nativePuzzle(8,'hard',1000,0)")
+        context.evaluateScript("nativePuzzle(8,'hard',4000,0)") // A seed outside the prepared bank.
         XCTAssertNotNil(context.exception)
         context.exception = nil
         let result = context.evaluateScript("nativePuzzle(5,'easy',1000)")
