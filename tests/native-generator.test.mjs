@@ -9,7 +9,7 @@ const bundled = readFileSync(new URL('../ios/Hitofude/Resources/Generator.js', i
 const web = vm.createContext({});
 const native = vm.createContext({});
 vm.runInContext(source, web);
-vm.runInContext(bundled, native);
+vm.runInContext(bundled.split('// ---------- prepared puzzles')[0], native);
 let checked = 0;
 for (const [size, difficulty] of [[5, 'easy'], [6, 'medium'], [7, 'hard'], [8, 'hard']]) {
   for (let seed = 1000; seed < 1000 + (size === 8 ? 2 : 5); seed++) {
@@ -54,3 +54,30 @@ console.log(`ok ${checked} iOS generator cases: Web parity, valid paths, unique 
 assert.throws(() => vm.runInContext("nativePuzzle(8,'hard',1000,0)", native), /timed out/);
 assert.doesNotThrow(() => JSON.parse(vm.runInContext("nativePuzzle(5,'easy',1000)", native)));
 console.log('ok generation deadline and recovery');
+
+// The offline bank must remain the exact Web output, including clues/difficulty.
+const cached = vm.createContext({});
+vm.runInContext(bundled, cached);
+const bank = JSON.parse(vm.runInContext('JSON.stringify(preparedPuzzles)', cached));
+let preparedCount = 0;
+for (const [key, entries] of Object.entries(bank)) {
+  const [sizeText, difficulty] = key.split('-');
+  const size = Number(sizeText);
+  assert.equal(entries.length, 16);
+  assert.equal(new Set(entries.map(entry => entry.seed)).size, 16);
+  for (const {seed, puzzle} of entries) {
+    const expected = JSON.parse(vm.runInContext(`(() => {
+      const p = makePuzzle(${size},${size},'${difficulty}',mulberry32(${seed}));
+      return JSON.stringify({size:${size}, path:p.path.map(([row,column])=>({row,column})),
+        clues:[...p.clues].map(([key,value])=>{const [row,column]=key.split(',').map(Number);return {row,column,value}})});
+    })()`, web, {timeout: 20000}));
+    assert.deepEqual(puzzle, expected, `prepared Web parity ${key} seed ${seed}`);
+    const actual = JSON.parse(vm.runInContext(`nativePuzzle(${size},'${difficulty}',${seed},0)`, cached));
+    assert.deepEqual(actual, expected, 'cache works without generation time');
+    const clues = JSON.stringify(puzzle.clues.map(({row,column,value}) => [`${row},${column}`,value]));
+    assert.equal(vm.runInContext(`countSolutions(${size},${size},new Map(${clues}))`, cached), 1);
+    preparedCount++;
+  }
+}
+assert.equal(preparedCount, 64);
+console.log(`ok ${preparedCount} prepared puzzles: unchanged Web output, unique solutions, zero generation budget`);

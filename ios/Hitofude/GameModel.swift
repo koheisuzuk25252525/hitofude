@@ -36,16 +36,24 @@ final class GameModel: ObservableObject {
     private let now: () -> Date
     private var requestID = UUID()
     private let defaults: UserDefaults
+    private var preparedNext: [GameMode: (seed: UInt32, puzzle: Puzzle)] = [:]
+    private(set) var preparationTask: Task<Void, Never>?
+    private let prepare: @Sendable (GameMode, Int) throws -> (seed: UInt32, puzzle: Puzzle)
+    private let prefetch: @Sendable (GameMode, UInt32) throws -> Puzzle
     private let generate: @Sendable (GameMode, UInt32) throws -> Puzzle
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
          analytics: PlayEventRecording? = nil, sounds: GameSoundPlaying? = nil,
+         prepare: @escaping @Sendable (GameMode, Int) throws -> (seed: UInt32, puzzle: Puzzle) = { try PuzzleGenerator.prepared(mode: $0, index: $1) },
+         prefetch: @escaping @Sendable (GameMode, UInt32) throws -> Puzzle = { try PuzzleGenerator.generate(mode: $0, seed: $1, timeoutMilliseconds: 1500) },
          generate: @escaping @Sendable (GameMode, UInt32) throws -> Puzzle = { try PuzzleGenerator.generate(mode: $0, seed: $1) }) {
         self.analytics = analytics
         self.sounds = sounds
         self.defaults = defaults
         self.now = now
         self.generate = generate
+        self.prepare = prepare
+        self.prefetch = prefetch
         let savedProgress: PlayProgress
         if let data = defaults.data(forKey: "hitofude.progress.v1"),
            let saved = try? JSONDecoder().decode(PlayProgress.self, from: data) {
@@ -76,25 +84,51 @@ final class GameModel: ObservableObject {
         mode = selected
         seed = explicitSeed ?? (selected == .daily ? GameMode.dailySeed(date: now()) : UInt32.random(in: .min ... .max))
         let selectedSeed = seed
+        let usesPrepared = explicitSeed == nil && opponent == nil && selected != .daily && selected != .tutorial
+        let next = usesPrepared ? preparedNext.removeValue(forKey: selected) : nil
+        let cursorKey = "hitofude.prepared.\(selected.rawValue)"
+        let cursor = defaults.object(forKey: cursorKey) == nil ? Int.random(in: 0..<16) : defaults.integer(forKey: cursorKey)
         puzzle = nil
         reset()
         isLoading = true
         best = defaults.object(forKey: "hitofude.best.\(selected.rawValue)") as? Double
         let generate = self.generate
+        let prepare = self.prepare
         do {
-            let generated = try await Task.detached(priority: .userInitiated) {
-                try generate(selected, selectedSeed)
+            let generated = try await Task.detached(priority: .userInitiated) { () throws -> (seed: UInt32, puzzle: Puzzle) in
+                if let next { return next }
+                if usesPrepared { return try prepare(selected, cursor) }
+                return (selectedSeed, try generate(selected, selectedSeed))
             }.value
             guard id == requestID else { return }
-            puzzle = generated
+            seed = generated.seed
+            puzzle = generated.puzzle
+            if usesPrepared && next == nil { defaults.set((cursor % 16 + 1) % 16, forKey: cursorKey) }
             isLoading = false
             record(.ready)
             saveSession()
+            if usesPrepared { prepareNextPuzzle(selected) }
         } catch {
             guard id == requestID else { return }
             isLoading = false
             message = error.localizedDescription
             record(.generationFailed)
+        }
+    }
+
+    // At most one bounded, low-priority generation runs at a time. A timeout is
+    // invisible to the player: the next request can always use the offline bank.
+    private func prepareNextPuzzle(_ selected: GameMode) {
+        guard preparationTask == nil, preparedNext[selected] == nil else { return }
+        let prefetch = self.prefetch
+        let nextSeed = UInt32.random(in: .min ... .max)
+        preparationTask = Task { [weak self] in
+            let result = await Task.detached(priority: .utility) {
+                try? prefetch(selected, nextSeed)
+            }.value
+            guard let self else { return }
+            if let result { self.preparedNext[selected] = (nextSeed, result) }
+            self.preparationTask = nil
         }
     }
 

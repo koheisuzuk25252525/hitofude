@@ -708,6 +708,66 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
+    func testRandomPlaySurvivesGenerationFailureAndRestoresTheRealSeed() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults,
+            prefetch: { _, _ in throw PuzzleGenerator.Failure.invalid },
+            generate: { _, _ in throw PuzzleGenerator.Failure.invalid })
+        for mode in [GameMode.easy, .medium, .hard, .oni] {
+            var seeds = Set<UInt32>()
+            for _ in 0..<16 {
+                await game.load(mode)
+                await game.preparationTask?.value
+                let puzzle = try XCTUnwrap(game.puzzle)
+                XCTAssertEqual(puzzle.size, mode.size)
+                XCTAssertNil(game.message)
+                XCTAssertFalse(game.isLoading)
+                XCTAssertTrue(seeds.insert(game.seed).inserted)
+                let shared = try PuzzleGenerator.generate(mode: mode, seed: game.seed, timeoutMilliseconds: 0)
+                XCTAssertEqual(puzzle.path, shared.path)
+                XCTAssertEqual(puzzle.clues, shared.clues)
+            }
+        }
+        let puzzle = try XCTUnwrap(game.puzzle)
+        game.step(puzzle.path[0])
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.seed, game.seed)
+        XCTAssertEqual(restored.mode, .oni)
+        XCTAssertEqual(restored.route, game.route)
+        XCTAssertEqual(restored.puzzle?.clues, puzzle.clues)
+    }
+
+    @MainActor
+    func testPreparedNextPuzzleIsUsedAndExplicitChallengesAreNotReplaced() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let prefetched = try PuzzleGenerator.generate(mode: .easy, seed: 1001, timeoutMilliseconds: 0)
+        let date = Date(timeIntervalSince1970: 1700000000)
+        let game = GameModel(defaults: defaults, now: { date },
+            prefetch: { _, _ in prefetched },
+            generate: { _, _ in throw PuzzleGenerator.Failure.invalid })
+        await game.load(.easy)
+        XCTAssertEqual(game.puzzle?.size, 5)
+        await game.preparationTask?.value
+        await game.load(.easy)
+        XCTAssertEqual(game.puzzle?.path, prefetched.path) // Injected result proves cache consumption.
+        await game.preparationTask?.value
+        let challenge = Challenge(mode: .oni, seed: 42, seconds: 30)
+        await game.load(.oni, seed: challenge.seed, rival: challenge)
+        XCTAssertNil(game.puzzle)
+        XCTAssertEqual(game.seed, challenge.seed)
+        XCTAssertEqual(game.rival, challenge)
+        XCTAssertNotNil(game.message)
+        await game.load(.daily)
+        XCTAssertNil(game.puzzle)
+        XCTAssertEqual(game.seed, GameMode.dailySeed(date: date))
+    }
+
+    @MainActor
     func testGenerationFailurePreservesSavedGameAndAllowsRecovery() async throws {
         let name = "hitofude-tests-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
@@ -764,7 +824,7 @@ final class HitofudeTests: XCTestCase {
         let context = try XCTUnwrap(JSContext())
         let url = try XCTUnwrap(Bundle.main.url(forResource: "Generator", withExtension: "js"))
         context.evaluateScript(try String(contentsOf: url, encoding: .utf8))
-        context.evaluateScript("nativePuzzle(8,'hard',1000,0)")
+        context.evaluateScript("nativePuzzle(8,'hard',4000,0)") // A seed outside the prepared bank.
         XCTAssertNotNil(context.exception)
         context.exception = nil
         let result = context.evaluateScript("nativePuzzle(5,'easy',1000)")
