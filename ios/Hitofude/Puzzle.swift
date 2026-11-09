@@ -117,16 +117,32 @@ enum PuzzleGenerator {
         var errorDescription: String? { "問題を作れませんでした。もう一度お試しください。" }
     }
 
+    private static let source: String? = {
+        guard let url = Bundle.main.url(forResource: "Generator", withExtension: "js") else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }()
+
+    // The bank contains exact generator output, with the original shareable seed.
+    static func prepared(mode: GameMode, index: Int) throws -> (seed: UInt32, puzzle: Puzzle) {
+        guard let source, let context = JSContext() else { throw Failure.unavailable }
+        context.evaluateScript(source)
+        guard let json = context.evaluateScript("JSON.stringify(preparedPuzzles['\(mode.size)-\(mode.difficulty)'].map(entry => entry.seed))")?.toString(),
+              let data = json.data(using: .utf8),
+              let seeds = try? JSONDecoder().decode([UInt32].self, from: data), !seeds.isEmpty else {
+            throw Failure.invalid
+        }
+        let seed = seeds[max(0, index) % seeds.count]
+        return (seed, try generate(mode: mode, seed: seed, timeoutMilliseconds: 0))
+    }
+
     // Create and use each context on the same background thread. No WebView or network needed.
-    static func generate(mode: GameMode, seed: UInt32) throws -> Puzzle {
+    static func generate(mode: GameMode, seed: UInt32, timeoutMilliseconds: Int = 20000) throws -> Puzzle {
         if mode == .tutorial { return .tutorial }
-        guard let url = Bundle.main.url(forResource: "Generator", withExtension: "js"),
-              let context = JSContext() else { throw Failure.unavailable }
-        let source = try String(contentsOf: url, encoding: .utf8)
+        guard let source, let context = JSContext() else { throw Failure.unavailable }
         context.evaluateScript(source)
         guard context.exception == nil,
               let function = context.objectForKeyedSubscript("nativePuzzle"),
-              let value = function.call(withArguments: [mode.size, mode.difficulty, NSNumber(value: seed)]),
+              let value = function.call(withArguments: [mode.size, mode.difficulty, NSNumber(value: seed), timeoutMilliseconds]),
               context.exception == nil,
               let json = value.toString(), let data = json.data(using: .utf8) else {
             throw Failure.invalid
