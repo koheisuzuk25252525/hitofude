@@ -1006,9 +1006,11 @@ final class HitofudeTests: XCTestCase {
         await game.load(.tutorial)
         XCTAssertEqual(game.nextClue, 1)
         for cell in Puzzle.tutorial.path.prefix(4) { game.step(cell) }
-        XCTAssertEqual(game.guidance, "次の数字 7 まで、あと 3 マス")
+        XCTAssertTrue(game.guidance.contains("いま4マス目"))
+        XCTAssertTrue(game.guidance.contains("7番目"))
         game.undo()
-        XCTAssertEqual(game.guidance, "次の数字 7 まで、あと 4 マス")
+        XCTAssertTrue(game.guidance.contains("いま3マス目"))
+        XCTAssertTrue(game.guidance.contains("7番目"))
         for cell in Puzzle.tutorial.path.dropFirst(3) { game.step(cell) }
         XCTAssertNil(game.nextClue)
         XCTAssertEqual(game.guidance, "すべてのマスが、一本の線に。")
