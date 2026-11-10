@@ -331,14 +331,14 @@ final class GameModel: ObservableObject {
         saveSession()
     }
 
-    private func showGuidePreview() {
+    private func showGuidePreview(limit: Int = 6) {
         let correct = correctPrefixCount
         let returnPoint = guideCorrectionCell
         correctionCell = returnPoint
         route = Array(route.prefix(correct))
         let start = max(1, correct)
         let available = Set(guidedIndices)
-        let upcoming = Array((start..<(start + 6)).prefix(while: { available.contains($0) }))
+        let upcoming = Array((start..<(start + limit)).prefix(while: { available.contains($0) }))
         guidePreview = upcoming.isEmpty ? [] : [start - 1] + upcoming
         guideCue = UUID()
         highlighted = nil
@@ -367,7 +367,7 @@ final class GameModel: ObservableObject {
         guard !indices.isEmpty else { return false }
         guidedIndices = Array(Set(guidedIndices + indices)).sorted()
         superHintUnlocked = true
-        showGuidePreview()
+        showGuidePreview(limit: indices.count)
         highlighted = nil
         beginClock()
         record(.superHint)

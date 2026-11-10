@@ -751,6 +751,11 @@ final class HitofudeTests: XCTestCase {
         game.reset()
         game.replayGuide()
         XCTAssertEqual(game.guidePreview, Array(0...firstEnd))
+        for index in 0...firstEnd { game.step(puzzle.path[index]) }
+        let gapOffer = game.guideOfferText
+        XCTAssertTrue(game.earnSuperHint(try XCTUnwrap(game.beginSuperHintReward())))
+        XCTAssertTrue(gapOffer.contains("次の\(game.guidePreview.count - 1)マス"))
+        game.reset()
 
         // Old builds stored only the all-answer entitlement, not purchased sections.
         var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))) as? [String: Any])
