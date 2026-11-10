@@ -244,7 +244,8 @@ final class GameModel: ObservableObject {
         let correct = correctPrefixCount
         route = Array(route.prefix(correct))
         let start = max(1, correct)
-        let upcoming = Array(guidedIndices.filter { $0 >= start }.prefix(6))
+        let available = Set(guidedIndices)
+        let upcoming = Array((start..<(start + 6)).prefix(while: { available.contains($0) }))
         guidePreview = upcoming.isEmpty ? [] : [start - 1] + upcoming
         guideCue = UUID()
         highlighted = nil

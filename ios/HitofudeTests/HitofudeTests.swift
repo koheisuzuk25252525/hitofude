@@ -648,6 +648,35 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
+    func testGuideReplayNeverConnectsAcrossUnpurchasedGapAndMigratesOldReward() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        for _ in 0..<3 { game.hint(); game.reset() }
+        XCTAssertTrue(game.earnSuperHint(try XCTUnwrap(game.beginSuperHintReward())))
+        let firstEnd = try XCTUnwrap(game.guidePreview.last)
+        for index in 0...(firstEnd + 3) { game.step(puzzle.path[index]) }
+        XCTAssertTrue(game.earnSuperHint(try XCTUnwrap(game.beginSuperHintReward())))
+        game.reset()
+        game.replayGuide()
+        XCTAssertEqual(game.guidePreview, Array(0...firstEnd))
+
+        // Old builds stored only the all-answer entitlement, not purchased sections.
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))) as? [String: Any])
+        legacy.removeValue(forKey: "guidedIndices")
+        defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "hitofude.session.v1")
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertFalse(restored.canRequestSuperHint)
+        restored.replayGuide()
+        XCTAssertEqual(restored.guidePreview, Array(0...6))
+        XCTAssertEqual(restored.guidedIndices.count, puzzle.path.count - 1)
+    }
+
+    @MainActor
     func testRewardedGuideRevealsShortSectionsAndAllowsMoreAdsAfterFollowing() async throws {
         let name = "hitofude-tests-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
