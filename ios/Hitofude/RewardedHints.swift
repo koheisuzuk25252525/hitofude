@@ -30,7 +30,8 @@ final class RewardedHints: NSObject, ObservableObject, FullScreenContentDelegate
         Task { [weak self] in
             guard let self else { return }
             // No SDK initialization or ad requests until the player explicitly opts in.
-            MobileAds.shared.start()
+            _ = await MobileAds.shared.start()
+            guard self.requestID == id else { return }
             let request = Request()
             let extras = Extras()
             extras.additionalParameters = ["npa": "1"]

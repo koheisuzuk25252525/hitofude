@@ -79,7 +79,8 @@ struct GameView: View {
         ZStack {
             playingScreen
                 .allowsHitTesting(!showsResult && !rewardedHints.isBusy)
-                .accessibilityHidden(showsResult)
+                .accessibilityHidden(showsResult || rewardedHints.isBusy)
+                .disabled(rewardedHints.isBusy)
             if showsResult && game.isFinished {
                 Color.black.opacity(0.2).ignoresSafeArea()
                     .accessibilityHidden(true)
@@ -95,6 +96,7 @@ struct GameView: View {
             }
         }
         .onChange(of: rewardedHints.isBusy) { _, _ in updateActivity() }
+        .onChange(of: rewardedHints.error) { _, _ in updateActivity() }
         .onChange(of: showsRewardOffer) { _, _ in updateActivity() }
         .alert("スーパーヒント", isPresented: $showsRewardOffer) {
             Button("広告を見る") { showRewardedHint() }
@@ -263,7 +265,7 @@ struct GameView: View {
 
     private func updateActivity() {
         // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
-        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy
+        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
