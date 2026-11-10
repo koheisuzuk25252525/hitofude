@@ -562,16 +562,11 @@ final class HitofudeTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         let game = GameModel(defaults: defaults)
-        game.setActive(true) // Scene activation may arrive before the initial task.
+        game.setActive(true)
         await game.startInitialGame()
-        XCTAssertEqual(game.mode, .tutorial)
-        XCTAssertEqual(game.puzzle?.size, 4)
-        XCTAssertTrue(game.guidance.contains("何番目"))
-        for cell in Puzzle.tutorial.path.prefix(6) { game.step(cell) }
-        XCTAssertTrue(game.guidance.contains("次が7マス目"))
-        XCTAssertEqual(game.tutorialTarget, Puzzle.tutorial.path[6])
-        game.step(Puzzle.tutorial.path[6])
-        XCTAssertTrue(game.guidance.contains("数字は通る順番"))
+        // The root introduction owns onboarding; the main game starts normally afterward.
+        XCTAssertEqual(game.mode, .easy)
+        XCTAssertEqual(game.puzzle?.size, 5)
         await game.load(.hard, seed: 1000)
         let puzzle = try XCTUnwrap(game.puzzle)
         game.step(puzzle.path[0])
@@ -652,6 +647,74 @@ final class HitofudeTests: XCTestCase {
         let saved = try XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(object["elapsed"] as? Double), 12.345, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testMandatoryTutorialStartsWithThreeCellsThenResumesFourByFour() throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let intro = OnboardingModel(defaults: defaults)
+        XCTAssertEqual(intro.stage, .line)
+        XCTAssertEqual(intro.path.count, 3)
+        XCTAssertEqual(intro.clues.values.sorted(), [1, 3])
+        intro.advance()
+        XCTAssertEqual(intro.stage, .line)
+        intro.trace([Cell(row: 0, column: 2)])
+        XCTAssertEqual(intro.progress, 0)
+        var stroke = BoardTrace()
+        intro.trace(stroke.cells(samples: [CGPoint(x: 5, y: 50), CGPoint(x: 295, y: 50)], width: 300, size: 3))
+        XCTAssertTrue(intro.isComplete)
+        let restored = OnboardingModel(defaults: defaults)
+        XCTAssertEqual(restored.stage, .line)
+        XCTAssertTrue(restored.isComplete)
+        restored.advance()
+        XCTAssertEqual(restored.stage, .board)
+        XCTAssertEqual(restored.progress, 0)
+        restored.trace(Array(restored.path.prefix(2)))
+        restored.trace([Cell(row: 1, column: 1)]) // "7" cannot be the third cell.
+        XCTAssertEqual(restored.progress, 2)
+        XCTAssertTrue(restored.message?.contains("7番目") == true)
+        let resumed = OnboardingModel(defaults: defaults)
+        XCTAssertEqual(resumed.stage, .board)
+        XCTAssertEqual(resumed.progress, 2)
+        resumed.advance()
+        XCTAssertEqual(resumed.stage, .board)
+        resumed.setActive(false)
+        resumed.trace([resumed.path[2]])
+        XCTAssertEqual(resumed.progress, 2)
+        resumed.setActive(true)
+        resumed.trace(Array(resumed.path.dropFirst(2)))
+        XCTAssertTrue(resumed.isComplete)
+        resumed.advance()
+        XCTAssertEqual(resumed.stage, .done)
+        XCTAssertEqual(OnboardingModel(defaults: defaults).stage, .done)
+    }
+
+    @MainActor
+    func testNewTutorialKeepsSavedGameAndReplacesOnlyOldPractice() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.hard, seed: 1000)
+        game.step(try XCTUnwrap(game.puzzle).path[0])
+        let saved = defaults.data(forKey: "hitofude.session.v1")
+        let intro = OnboardingModel(defaults: defaults)
+        intro.trace(intro.path); intro.advance(); intro.trace(intro.path); intro.advance()
+        XCTAssertEqual(defaults.data(forKey: "hitofude.session.v1"), saved)
+        let resumed = GameModel(defaults: defaults)
+        await resumed.startInitialGame()
+        XCTAssertEqual(resumed.mode, .hard)
+        XCTAssertEqual(resumed.route.count, 1)
+        await game.load(.tutorial)
+        defaults.removeObject(forKey: "hitofude.onboarding.v2.stage")
+        let legacy = OnboardingModel(defaults: defaults)
+        legacy.trace(legacy.path); legacy.advance(); legacy.trace(legacy.path); legacy.advance()
+        XCTAssertNil(defaults.data(forKey: "hitofude.session.v1"))
+        let after = GameModel(defaults: defaults)
+        await after.startInitialGame()
+        XCTAssertEqual(after.mode, .easy)
     }
 
     @MainActor
