@@ -362,7 +362,7 @@ final class HitofudeTests: XCTestCase {
         let afterReset = GameModel(defaults: defaults, now: { date })
         await afterReset.startInitialGame()
         XCTAssertTrue(afterReset.route.isEmpty)
-        XCTAssertEqual(afterReset.hintsLeft, 3)
+        XCTAssertEqual(afterReset.hintsLeft, 2)
         XCTAssertEqual(afterReset.elapsed(at: date), 0)
     }
 
@@ -645,6 +645,123 @@ final class HitofudeTests: XCTestCase {
         let saved = try XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(object["elapsed"] as? Double), 12.345, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testGuideReplayNeverConnectsAcrossUnpurchasedGapAndMigratesOldReward() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        for _ in 0..<3 { game.hint(); game.reset() }
+        XCTAssertTrue(game.earnSuperHint(try XCTUnwrap(game.beginSuperHintReward())))
+        let firstEnd = try XCTUnwrap(game.guidePreview.last)
+        for index in 0...(firstEnd + 3) { game.step(puzzle.path[index]) }
+        XCTAssertTrue(game.earnSuperHint(try XCTUnwrap(game.beginSuperHintReward())))
+        game.reset()
+        game.replayGuide()
+        XCTAssertEqual(game.guidePreview, Array(0...firstEnd))
+
+        // Old builds stored only the all-answer entitlement, not purchased sections.
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))) as? [String: Any])
+        legacy.removeValue(forKey: "guidedIndices")
+        defaults.set(try JSONSerialization.data(withJSONObject: legacy), forKey: "hitofude.session.v1")
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertFalse(restored.canRequestSuperHint)
+        restored.replayGuide()
+        XCTAssertEqual(restored.guidePreview, Array(0...6))
+        XCTAssertEqual(restored.guidedIndices.count, puzzle.path.count - 1)
+    }
+
+    @MainActor
+    func testRewardedGuideRevealsShortSectionsAndAllowsMoreAdsAfterFollowing() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        for _ in 0..<3 { game.hint(); game.reset() }
+        var rewards = 0
+        while !game.isFinished {
+            let correct = game.route.count
+            let start = max(1, correct)
+            let clueEnd = try XCTUnwrap(puzzle.clues.values.map { $0 - 1 }.filter { $0 >= start }.min())
+            let expectedEnd = min(clueEnd, start + 5)
+            let token = try XCTUnwrap(game.beginSuperHintReward())
+            XCTAssertTrue(game.earnSuperHint(token))
+            rewards += 1
+            XCTAssertEqual(game.guidePreview, Array((start - 1)...expectedEnd))
+            XCTAssertLessThanOrEqual(game.guidePreview.count, 7) // Anchor plus at most six new cells.
+            XCTAssertNil(game.beginSuperHintReward(), "Replaying a purchased section must not ask for another ad")
+            let paid = game.guidedIndices
+            game.replayGuide()
+            XCTAssertEqual(game.guidedIndices, paid)
+            for index in correct...expectedEnd { game.step(puzzle.path[index]) }
+        }
+        XCTAssertGreaterThan(rewards, 1)
+        XCTAssertNil(game.best)
+        game.reset()
+        XCTAssertTrue(game.canReplayGuide)
+        XCTAssertFalse(game.canRequestSuperHint)
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.guidedIndices, game.guidedIndices)
+        restored.replayGuide()
+        XCTAssertLessThanOrEqual(restored.guidePreview.count, 7)
+        XCTAssertEqual(restored.hintsLeft, 0)
+        await restored.load(.easy, seed: 1001)
+        XCTAssertTrue(restored.guidedIndices.isEmpty)
+        XCTAssertTrue(restored.guidePreview.isEmpty)
+    }
+
+    @MainActor
+    func testRestartPreservesHintBudgetAndRewardAcrossRelaunch() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        XCTAssertNil(game.beginSuperHintReward())
+        for remaining in [2, 1, 0] {
+            game.hint()
+            game.reset()
+            XCTAssertEqual(game.hintsLeft, remaining)
+        }
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.hintsLeft, 0)
+        XCTAssertFalse(restored.superHintUnlocked)
+        let cancelled = try XCTUnwrap(restored.beginSuperHintReward())
+        restored.cancelSuperHintReward(cancelled)
+        XCTAssertFalse(restored.earnSuperHint(cancelled))
+        let stale = try XCTUnwrap(restored.beginSuperHintReward())
+        restored.reset()
+        XCTAssertFalse(restored.earnSuperHint(stale))
+        let token = try XCTUnwrap(restored.beginSuperHintReward())
+        XCTAssertNil(restored.beginSuperHintReward())
+        restored.setActive(false)
+        XCTAssertTrue(restored.earnSuperHint(token))
+        XCTAssertFalse(restored.earnSuperHint(token))
+        restored.reset()
+        XCTAssertTrue(restored.superHintUnlocked)
+        let rewarded = GameModel(defaults: defaults)
+        await rewarded.startInitialGame()
+        XCTAssertTrue(rewarded.superHintUnlocked)
+        XCTAssertEqual(rewarded.hintsLeft, 0)
+        let puzzle = try XCTUnwrap(rewarded.puzzle)
+        for cell in puzzle.path { rewarded.step(cell) }
+        XCTAssertTrue(rewarded.isFinished)
+        XCTAssertNil(rewarded.best)
+        XCTAssertNil(rewarded.challenge)
+        XCTAssertTrue(rewarded.shareText.contains("道案内使用"))
+        await rewarded.load(.easy, seed: 1001)
+        XCTAssertEqual(rewarded.hintsLeft, 3)
+        XCTAssertFalse(rewarded.superHintUnlocked)
+        XCTAssertFalse(rewarded.earnSuperHint(token))
     }
 
     @MainActor
