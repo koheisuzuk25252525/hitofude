@@ -624,8 +624,9 @@ final class OnboardingModel: ObservableObject {
         self.sounds = sounds
         let checkpoint = defaults.data(forKey: Self.stageKey).flatMap { try? JSONDecoder().decode(Checkpoint.self, from: $0) }
         let restoredStage = checkpoint.flatMap { Stage(rawValue: $0.stage) }
-        stage = restoredStage ?? .line
-        let total = stage == .line ? 3 : stage == .board ? 16 : 0
+        let selectedStage = restoredStage ?? .line
+        stage = selectedStage
+        let total = selectedStage == .line ? 3 : selectedStage == .board ? 16 : 0
         progress = restoredStage == nil ? 0 : min(total, max(0, checkpoint?.progress ?? 0))
     }
 
