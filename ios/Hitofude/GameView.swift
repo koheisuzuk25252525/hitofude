@@ -32,6 +32,115 @@ private extension EnvironmentValues {
     }
 }
 
+struct HitofudeRootView: View {
+    @StateObject private var introduction = OnboardingModel(sounds: GameAudio.shared)
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
+        Group {
+            if introduction.stage == .done { GameView() }
+            else { IntroductionView(model: introduction) }
+        }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            introduction.setActive(phase == .active)
+        }
+    }
+}
+
+private struct IntroductionView: View {
+    @ObservedObject var model: OnboardingModel
+    @ObservedObject private var audio = GameAudio.shared
+    private let palette = Palette(isNight: false)
+
+    var body: some View {
+        GeometryReader { geometry in
+            let availableSide = min(440, max(160, geometry.size.width - 32))
+            let side = model.stage == .line ? availableSide : min(availableSide, max(160, geometry.size.height - 470))
+            ScrollView {
+                VStack(spacing: 12) {
+                    HStack {
+                        (Text("ヒト") + Text("フデ").foregroundColor(palette.accent))
+                            .font(.system(.title, design: .rounded, weight: .black))
+                        Spacer()
+                        Button { audio.setEnabled(!audio.enabled) } label: {
+                            Image(systemName: audio.enabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                                .font(.title2).frame(width: 44, height: 44)
+                        }.accessibilityLabel(audio.enabled ? "効果音をオフにする" : "効果音をオンにする")
+                    }
+                    Text(model.stage == .line ? "はじめの一筆 · 1 / 2" : "数字の意味を覚えよう · 2 / 2")
+                        .font(.title2.bold()).accessibilityAddTraits(.isHeader)
+                    Text(model.message ?? model.instruction)
+                        .font(.body).multilineTextAlignment(.center)
+                        .foregroundStyle(model.message == nil ? palette.foreground : palette.accent)
+                        .frame(minHeight: 70)
+                    Spacer(minLength: 8)
+                    introductionBoard
+                        .frame(width: side, height: model.stage == .line ? side / 3 : side)
+                    Text(model.isComplete ? "ひと筆、完成！" : "マスを順番にタップしても進めます")
+                        .font(model.isComplete ? .headline : .footnote)
+                        .foregroundStyle(model.isComplete ? palette.accent : palette.foreground.opacity(0.7))
+                    Spacer(minLength: 8)
+                    Button { model.advance() } label: {
+                        Text(model.stage == .line ? "次は、曲がってみよう" : "ヒトフデをはじめる")
+                            .bold().frame(maxWidth: .infinity, minHeight: 44)
+                    }.buttonStyle(.borderedProminent).disabled(!model.isComplete || !model.isActive)
+                }
+                .frame(maxWidth: 440)
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+            .background(palette.background.ignoresSafeArea())
+            .foregroundStyle(palette.foreground).tint(palette.accent)
+        }
+    }
+
+    private var introductionBoard: some View {
+        GeometryReader { geometry in
+            let columns = model.stage == .line ? 3 : 4
+            let step = geometry.size.width / CGFloat(columns)
+            let orders = Dictionary(uniqueKeysWithValues: model.path.prefix(model.progress).enumerated().map { ($0.element, $0.offset + 1) })
+            ZStack {
+                RoundedRectangle(cornerRadius: 18).fill(palette.cell)
+                ForEach(0..<model.path.count, id: \.self) { index in
+                    let cell = Cell(row: index / columns, column: index % columns)
+                    let number = model.clues[cell] ?? orders[cell]
+                    Button { model.trace([cell]) } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(orders[cell] == nil ? palette.soft : palette.accent.opacity(0.18))
+                            if let number {
+                                Text("\(number)").font(.system(size: max(20, step * 0.36), weight: .bold, design: .rounded))
+                            }
+                            if model.target == cell {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(palette.accent, style: StrokeStyle(lineWidth: 3, dash: [4]))
+                            }
+                        }.frame(width: step - 8, height: step - 8)
+                    }
+                    .buttonStyle(.plain).disabled(!model.isActive || model.isComplete)
+                    .position(x: (CGFloat(cell.column) + 0.5) * step, y: (CGFloat(cell.row) + 0.5) * step)
+                    .accessibilityLabel("\(cell.row + 1)行\(cell.column + 1)列、" + (number.map { "数字\($0)" } ?? "数字のないマス"))
+                    .accessibilityHint(model.target == cell ? "次に進むマス" : "")
+                }
+                Path { path in
+                    for (index, cell) in model.path.prefix(model.progress).enumerated() {
+                        let point = CGPoint(x: (CGFloat(cell.column) + 0.5) * step, y: (CGFloat(cell.row) + 0.5) * step)
+                        if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                    }
+                }
+                .stroke(palette.accent.opacity(0.55), style: StrokeStyle(lineWidth: max(5, step * 0.10), lineCap: .round, lineJoin: .round))
+                .allowsHitTesting(false).accessibilityHidden(true)
+            }
+            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.foreground, lineWidth: 2).allowsHitTesting(false))
+            .overlay {
+                BoardTouchSurface(size: columns, identifier: UInt32(model.stage.rawValue),
+                                  enabled: model.isActive && !model.isComplete, onCells: model.trace)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
 struct GameView: View {
     @StateObject private var game = GameModel(analytics: PlayAnalytics.shared, sounds: GameAudio.shared)
     @StateObject private var rewardedHints = RewardedHints()
@@ -139,10 +248,6 @@ struct GameView: View {
                     Text("ひとつ前のマスへ戻ると、1手取り消せます。マスを順にタップしても遊べます。")
                     Text("難易度は盤面の上で選べます。効果音は画面上のスピーカーで切り替えます。消音モード中は鳴りません。")
                     Text("ヒントは1問につき3回。やり直しても回数は戻りません。使い切った後は、任意のテスト広告1回で、次の数字まで最大6マスの道を案内します。追加の広告で何度でも使え、案内済みの区間は無料で見直せます。広告表示にはGoogleへの通信が必要です。道案内使用時は自己ベストの対象外です。")
-                    Button("れんしゅうする") {
-                        showsHelp = false
-                        Task { await game.load(.tutorial) }
-                    }.buttonStyle(.borderedProminent)
                     Link("プライバシーポリシー", destination: URL(string: "https://koheisuzuk25252525.github.io/hitofude/privacy.html")!)
                     Link("サポート・お問い合わせ", destination: URL(string: "https://koheisuzuk25252525.github.io/hitofude/support.html")!)
                     Text("バージョン \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")（\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")）")
@@ -632,7 +737,13 @@ private final class BoardStrokeRecognizer: UIGestureRecognizer {
         guard let view else { return }
         let history = event.coalescedTouches(for: touch) ?? []
         let samples = (history.isEmpty ? [touch] : history).map { $0.location(in: view) }
-        let cells = trace.cells(samples: samples, width: view.bounds.width, size: boardSize)
+        var cells: [Cell] = []
+        for point in samples {
+            guard view.bounds.contains(point) else { trace.reset(); continue }
+            for cell in trace.cells(to: point, width: view.bounds.width, size: boardSize) {
+                if cells.last != cell { cells.append(cell) }
+            }
+        }
         if !cells.isEmpty { onCells?(cells) }
     }
 }

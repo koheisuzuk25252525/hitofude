@@ -56,7 +56,6 @@ final class GameModel: ObservableObject {
     private let now: () -> Date
     private var requestID = UUID()
     private let defaults: UserDefaults
-    private let isFirstLaunch: Bool
     private var preparedNext: [GameMode: (seed: UInt32, puzzle: Puzzle)] = [:]
     private(set) var preparationTask: Task<Void, Never>?
     private let prepare: @Sendable (GameMode, Int) throws -> (seed: UInt32, puzzle: Puzzle)
@@ -71,7 +70,6 @@ final class GameModel: ObservableObject {
         self.analytics = analytics
         self.sounds = sounds
         self.defaults = defaults
-        self.isFirstLaunch = defaults.object(forKey: "hitofude.lastVisit") == nil && defaults.data(forKey: "hitofude.session.v1") == nil && !defaults.bool(forKey: "hitofude.tutorialCompleted")
         self.now = now
         self.generate = generate
         self.prepare = prepare
@@ -95,7 +93,7 @@ final class GameModel: ObservableObject {
         guard puzzle == nil, !isLoading else { return }
         registerVisit()
         if restoreSession(), !isFinished { return }
-        await load(isFirstLaunch ? .tutorial : .easy)
+        await load(.easy)
     }
 
     func load(_ selected: GameMode, seed explicitSeed: UInt32? = nil, rival opponent: Challenge? = nil) async {
@@ -604,5 +602,105 @@ final class GameModel: ObservableObject {
             completionMessage = hintsLeft == 3 ? "ヒントなしで、つながりました。" : "考えた道が、一本につながりました。"
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+
+/// The mandatory introduction has its own progress, never the saved puzzle's session.
+@MainActor
+final class OnboardingModel: ObservableObject {
+    enum Stage: Int { case line, board, done }
+    @Published private(set) var stage: Stage
+    @Published private(set) var progress: Int
+    @Published private(set) var message: String?
+    @Published private(set) var isActive = true
+    private let defaults: UserDefaults
+    private let sounds: GameSoundPlaying?
+    private static let stageKey = "hitofude.onboarding.v2.stage"
+    private struct Checkpoint: Codable { let stage: Int; let progress: Int }
+
+    init(defaults: UserDefaults = .standard, sounds: GameSoundPlaying? = nil) {
+        self.defaults = defaults
+        self.sounds = sounds
+        let checkpoint = defaults.data(forKey: Self.stageKey).flatMap { try? JSONDecoder().decode(Checkpoint.self, from: $0) }
+        let restoredStage = checkpoint.flatMap { Stage(rawValue: $0.stage) }
+        stage = restoredStage ?? .line
+        let total = stage == .line ? 3 : stage == .board ? 16 : 0
+        progress = restoredStage == nil ? 0 : min(total, max(0, checkpoint?.progress ?? 0))
+    }
+
+    var path: [Cell] {
+        stage == .line ? (0..<3).map { Cell(row: 0, column: $0) } : Puzzle.tutorial.path
+    }
+    var clues: [Cell: Int] {
+        stage == .line ? [Cell(row: 0, column: 0): 1, Cell(row: 0, column: 2): 3] : Puzzle.tutorial.clues
+    }
+    var isComplete: Bool { stage != .done && progress == path.count }
+    var target: Cell? { stage != .done && !isComplete ? path[progress] : nil }
+    var instruction: String {
+        if stage == .line {
+            return isComplete ? "できた！数字のないマスも通れました" : "「1」から、真ん中のマスを通って「3」へ。指でなぞってみよう"
+        }
+        if isComplete { return "数字は、そのマスを何番目に通るか。これで準備完了！" }
+        if progress == 0 { return "次は曲がって進もう。数字は、そのマスを何番目に通るかを表します" }
+        if progress < 6 { return "いま\(progress)マス目。「7」のマスは7番目に通ります。目印へ進もう" }
+        if progress == 6 { return "次が7マス目！「7」のマスへ進もう" }
+        if progress == 7 { return "そう！数字は通る順番。次は11番目に「11」へ" }
+        return "すべてのマスを1回ずつ通り、最後は「16」へ進もう"
+    }
+
+    func trace(_ cells: [Cell]) {
+        guard isActive, stage != .done, !isComplete else { return }
+        let before = progress
+        for cell in cells {
+            if progress > 0, cell == path[progress - 1] { continue }
+            if progress > 1, cell == path[progress - 2] { progress -= 1; message = nil; continue }
+            if progress >= path.count { break }
+            guard cell == path[progress] else {
+                if progress == 0 { message = "まず「1」のマスからはじめよう" }
+                else if let clue = clues[cell], clue != progress + 1 { message = "そのマスは\(clue)番目に通ろう。数字のないマスも数えます" }
+                else { message = "目印のマスへ、上下左右になぞってみよう" }
+                continue
+            }
+            progress += 1
+            message = nil
+            if isComplete { break }
+        }
+        if progress != before { save() }
+        if isComplete { sounds?.play(.clear) }
+        else if progress > before { sounds?.play(.step(index: progress - 1, total: path.count)) }
+    }
+
+    func advance() {
+        guard isActive, isComplete else { return }
+        if stage == .board {
+            // Retire only the old standalone practice session; real puzzles stay untouched.
+            if let data = defaults.data(forKey: "hitofude.session.v1"),
+               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               object["mode"] as? String == GameMode.tutorial.rawValue {
+                defaults.removeObject(forKey: "hitofude.session.v1")
+            }
+            defaults.set(true, forKey: "hitofude.tutorialCompleted")
+        }
+        stage = stage == .line ? .board : .done
+        progress = 0; message = nil
+        save()
+    }
+
+    func restart() {
+        guard isActive, stage != .done else { return }
+        sounds?.stop(); progress = 0; message = nil; save()
+    }
+
+    func setActive(_ active: Bool) {
+        isActive = active
+        if !active { sounds?.stop() }
+    }
+
+    private func save() {
+        // A single encoded checkpoint keeps stage and progress consistent across termination.
+        if let data = try? JSONEncoder().encode(Checkpoint(stage: stage.rawValue, progress: progress)) {
+            defaults.set(data, forKey: Self.stageKey)
+        }
     }
 }
