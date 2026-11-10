@@ -648,6 +648,48 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
+    func testRewardedGuideRevealsShortSectionsAndAllowsMoreAdsAfterFollowing() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        for _ in 0..<3 { game.hint(); game.reset() }
+        var rewards = 0
+        while !game.isFinished {
+            let correct = game.route.count
+            let start = max(1, correct)
+            let clueEnd = try XCTUnwrap(puzzle.clues.values.map { $0 - 1 }.filter { $0 >= start }.min())
+            let expectedEnd = min(clueEnd, start + 5)
+            let token = try XCTUnwrap(game.beginSuperHintReward())
+            XCTAssertTrue(game.earnSuperHint(token))
+            rewards += 1
+            XCTAssertEqual(game.guidePreview, Array((start - 1)...expectedEnd))
+            XCTAssertLessThanOrEqual(game.guidePreview.count, 7) // Anchor plus at most six new cells.
+            XCTAssertNil(game.beginSuperHintReward(), "Replaying a purchased section must not ask for another ad")
+            let paid = game.guidedIndices
+            game.replayGuide()
+            XCTAssertEqual(game.guidedIndices, paid)
+            for index in correct...expectedEnd { game.step(puzzle.path[index]) }
+        }
+        XCTAssertGreaterThan(rewards, 1)
+        XCTAssertNil(game.best)
+        game.reset()
+        XCTAssertTrue(game.canReplayGuide)
+        XCTAssertFalse(game.canRequestSuperHint)
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.guidedIndices, game.guidedIndices)
+        restored.replayGuide()
+        XCTAssertLessThanOrEqual(restored.guidePreview.count, 7)
+        XCTAssertEqual(restored.hintsLeft, 0)
+        await restored.load(.easy, seed: 1001)
+        XCTAssertTrue(restored.guidedIndices.isEmpty)
+        XCTAssertTrue(restored.guidePreview.isEmpty)
+    }
+
+    @MainActor
     func testRestartPreservesHintBudgetAndRewardAcrossRelaunch() async throws {
         let name = "hitofude-tests-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
@@ -686,7 +728,7 @@ final class HitofudeTests: XCTestCase {
         XCTAssertTrue(rewarded.isFinished)
         XCTAssertNil(rewarded.best)
         XCTAssertNil(rewarded.challenge)
-        XCTAssertTrue(rewarded.shareText.contains("スーパーヒント使用"))
+        XCTAssertTrue(rewarded.shareText.contains("道案内使用"))
         await rewarded.load(.easy, seed: 1001)
         XCTAssertEqual(rewarded.hintsLeft, 3)
         XCTAssertFalse(rewarded.superHintUnlocked)

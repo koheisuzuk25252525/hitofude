@@ -98,11 +98,11 @@ struct GameView: View {
         .onChange(of: rewardedHints.isBusy) { _, _ in updateActivity() }
         .onChange(of: rewardedHints.error) { _, _ in updateActivity() }
         .onChange(of: showsRewardOffer) { _, _ in updateActivity() }
-        .alert("スーパーヒント", isPresented: $showsRewardOffer) {
+        .alert("道案内", isPresented: $showsRewardOffer) {
             Button("広告を見る") { showRewardedHint() }
             Button("キャンセル", role: .cancel) { }
         } message: {
-            Text("広告を最後まで見ると、ゴールまでの正しい順番を表示します。自己ベストの対象にはなりません。\n現在はテスト広告です。Googleの広告SDKが通信し、IPアドレス・端末情報・広告操作情報などを扱います。プレイ分析への同意とは別の機能です。")
+            Text("広告1回で、次の数字までの道を最大6マス案内します。追加の案内は、もう一度広告を見ると使えます。自己ベストの対象にはなりません。\n現在はテスト広告です。Googleの広告SDKが通信し、IPアドレス・端末情報・広告操作情報などを扱います。プレイ分析への同意とは別の機能です。")
         }
         .alert("広告を表示できません", isPresented: Binding(get: { rewardedHints.error != nil }, set: { if !$0 { rewardedHints.error = nil } })) {
             Button("閉じる", role: .cancel) { rewardedHints.error = nil }
@@ -138,7 +138,7 @@ struct GameView: View {
                     Text("数字のあるマスは、その順番に通りましょう。すべてのマスを1回ずつ通ればクリア！")
                     Text("ひとつ前のマスへ戻ると、1手取り消せます。マスを順にタップしても遊べます。")
                     Text("難易度は盤面の上で選べます。効果音は画面上のスピーカーで切り替えます。消音モード中は鳴りません。")
-                    Text("ヒントは1問につき3回。やり直しても回数は戻りません。使い切った後は、任意のテスト広告を最後まで見ると全マスの正しい順番を表示できます。広告表示にはGoogleへの通信が必要です。スーパーヒント使用時は自己ベストの対象外です。")
+                    Text("ヒントは1問につき3回。やり直しても回数は戻りません。使い切った後は、任意のテスト広告1回で、次の数字まで最大6マスの道を案内します。追加の広告で何度でも使え、案内済みの区間は無料で見直せます。広告表示にはGoogleへの通信が必要です。道案内使用時は自己ベストの対象外です。")
                     Button("れんしゅうする") {
                         showsHelp = false
                         Task { await game.load(.tutorial) }
@@ -371,20 +371,35 @@ struct GameView: View {
     }
 
     private var controls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack { hintButton; undoButton; resetButton }
-            VStack { HStack { hintButton; undoButton }; resetButton }
+        Group {
+            if typeSize.isAccessibilitySize {
+                VStack { hintButton; undoButton; resetButton }
+            } else {
+                HStack(spacing: 8) { hintButton; undoButton; resetButton }
+            }
         }
+        .font(.subheadline.weight(.medium))
         .buttonStyle(.bordered)
-        .controlSize(.large)
+        .controlSize(.regular)
     }
     @ViewBuilder private var hintButton: some View {
         if game.hintsLeft == 0 {
-            Button(game.superHintUnlocked ? "道順を表示中" : "スーパーヒント") { showsRewardOffer = true }
-                .disabled(!game.canRequestSuperHint || game.isPaused || rewardedHints.isBusy)
+            Button {
+                if game.canReplayGuide { game.replayGuide() }
+                else { showsRewardOffer = true }
+            } label: {
+                Label("道案内", systemImage: "sparkles")
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, minHeight: 32)
+            }
+            .tint(palette.accent)
+            .disabled((!game.canRequestSuperHint && !game.canReplayGuide) || game.isPaused || rewardedHints.isBusy)
+            .accessibilityHint(game.canReplayGuide ? "案内済みの道をもう一度表示します。広告は不要です" : "広告を見ると次の区間を案内します")
         } else {
-            Button("ヒント \(game.hintsLeft)") { game.hint() }
-                .disabled(game.highlighted != nil || game.isFinished || game.isPaused || game.mode == .tutorial)
+            Button { game.hint() } label: {
+                Text("ヒント \(game.hintsLeft)").frame(maxWidth: .infinity, minHeight: 32)
+            }
+            .disabled(game.highlighted != nil || game.isFinished || game.isPaused || game.mode == .tutorial)
         }
     }
     private func showRewardedHint() {
@@ -394,10 +409,14 @@ struct GameView: View {
         updateActivity()
     }
     private var undoButton: some View {
-        Button("ひとつ戻す") { game.undo() }.disabled(game.route.isEmpty || game.isFinished)
+        Button { game.undo() } label: {
+            Text("戻す").frame(maxWidth: .infinity, minHeight: 32)
+        }.disabled(game.route.isEmpty || game.isFinished)
     }
     private var resetButton: some View {
-        Button("やり直す") { game.reset() }
+        Button { game.reset() } label: {
+            Text("やり直す").lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity, minHeight: 32)
+        }
     }
     private var completion: some View {
         CompletionPanel(
@@ -614,6 +633,10 @@ private final class BoardStrokeRecognizer: UIGestureRecognizer {
 }
 
 private struct BoardView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealedGuideCount = 0
+    @State private var glowingGuideIndex: Int?
+    @State private var playedGuideCue: UUID?
     @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
@@ -623,13 +646,22 @@ private struct BoardView: View {
             let width = geometry.size.width
             let step = width / CGFloat(puzzle.size)
             let orders = Dictionary(uniqueKeysWithValues: game.route.enumerated().map { ($0.element, $0.offset + 1) })
-            let solution = game.superHintUnlocked ? Dictionary(uniqueKeysWithValues: puzzle.path.enumerated().map { ($0.element, $0.offset + 1) }) : [:]
+            let solution = Dictionary(uniqueKeysWithValues: game.guidePreview.prefix(revealedGuideCount).map { (puzzle.path[$0], $0 + 1) })
             let nextClue = game.nextClue
             ZStack {
                 RoundedRectangle(cornerRadius: 18).fill(palette.cell)
                 ForEach(0..<(puzzle.size * puzzle.size), id: \.self) { index in
                     cellView(index: index, step: step, order: orders[Cell(row: index / puzzle.size, column: index % puzzle.size)], nextClue: nextClue, solution: solution[Cell(row: index / puzzle.size, column: index % puzzle.size)])
                 }
+                Path { path in
+                    for (offset, index) in game.guidePreview.prefix(revealedGuideCount).enumerated() {
+                        let point = center(of: puzzle.path[index], step: step)
+                        if offset == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                    }
+                }
+                .stroke(palette.accent.opacity(0.75), style: StrokeStyle(lineWidth: max(3, step * 0.07), lineCap: .round, dash: [4, 5]))
+                .shadow(color: palette.accent.opacity(0.45), radius: 5)
+                .allowsHitTesting(false).accessibilityHidden(true)
                 Path { path in
                     for (index, cell) in game.route.enumerated() {
                         let point = center(of: cell, step: step)
@@ -650,7 +682,35 @@ private struct BoardView: View {
                     .accessibilityHidden(true)
             }
         }
+        .task(id: "\(game.guideCue)-\(game.isPaused)-\(game.isFinished)") {
+            glowingGuideIndex = nil
+            guard !game.isPaused, !game.isFinished, playedGuideCue != game.guideCue else { return }
+            let cue = game.guideCue
+            let initialRoute = game.route
+            revealedGuideCount = reduceMotion ? game.guidePreview.count : 0
+            if !reduceMotion {
+                for (offset, index) in game.guidePreview.enumerated() {
+                    guard !Task.isCancelled, playedGuideCue != cue else { return }
+                    guard game.route == initialRoute else {
+                        revealedGuideCount = game.guidePreview.count
+                        glowingGuideIndex = nil
+                        playedGuideCue = cue
+                        return
+                    }
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        revealedGuideCount = offset + 1
+                        glowingGuideIndex = index
+                    }
+                    if offset > 0 { GameAudio.shared.play(.step(index: index, total: puzzle.path.count)) }
+                    do { try await Task.sleep(for: .milliseconds(220)) } catch { return }
+                }
+            }
+            glowingGuideIndex = nil
+            playedGuideCue = cue
+        }
+
     }
+
 
     private func cellView(index: Int, step: CGFloat, order: Int?, nextClue: Int?, solution: Int?) -> some View {
         let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
@@ -669,6 +729,13 @@ private struct BoardView: View {
                     Text("\(number)")
                         .font(.system(size: max(14, step * 0.38), weight: clue != nil ? .bold : .regular, design: .rounded))
                         .foregroundStyle(palette.foreground)
+                }
+                if let glowingGuideIndex, puzzle.path.indices.contains(glowingGuideIndex), puzzle.path[glowingGuideIndex] == cell {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(palette.accent, lineWidth: 3)
+                        .shadow(color: palette.accent, radius: 8)
+                    Image(systemName: "sparkle").font(.caption.bold())
+                        .foregroundStyle(palette.accent).offset(x: step * 0.26, y: -step * 0.26)
                 }
                 if isHint {
                     RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, lineWidth: 3)
