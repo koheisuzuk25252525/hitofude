@@ -14,6 +14,21 @@ final class GameModel: ObservableObject {
     @Published private(set) var guidedIndices: [Int] = []
     @Published private(set) var guidePreview: [Int] = []
     @Published private(set) var guideCue = UUID()
+    @Published private(set) var correctionCell: Cell?
+    @Published private(set) var canUndoReset = false
+    private struct ResetBackup {
+        let route: [Cell]
+        let highlighted: Cell?
+        let correction: Cell?
+        let preview: [Int]
+        let message: String?
+        let startedAt: Date?
+        let elapsed: TimeInterval
+        let attemptID: String
+        let expires: Date
+    }
+    private var resetBackup: ResetBackup?
+    private var resetExpiry: Task<Void, Never>?
     private var pendingSuperHint: (token: UUID, attempt: String)?
     @Published private(set) var highlighted: Cell?
     @Published private(set) var message: String?
@@ -41,6 +56,7 @@ final class GameModel: ObservableObject {
     private let now: () -> Date
     private var requestID = UUID()
     private let defaults: UserDefaults
+    private let isFirstLaunch: Bool
     private var preparedNext: [GameMode: (seed: UInt32, puzzle: Puzzle)] = [:]
     private(set) var preparationTask: Task<Void, Never>?
     private let prepare: @Sendable (GameMode, Int) throws -> (seed: UInt32, puzzle: Puzzle)
@@ -55,6 +71,7 @@ final class GameModel: ObservableObject {
         self.analytics = analytics
         self.sounds = sounds
         self.defaults = defaults
+        self.isFirstLaunch = defaults.object(forKey: "hitofude.lastVisit") == nil && defaults.data(forKey: "hitofude.session.v1") == nil && !defaults.bool(forKey: "hitofude.tutorialCompleted")
         self.now = now
         self.generate = generate
         self.prepare = prepare
@@ -78,7 +95,7 @@ final class GameModel: ObservableObject {
         guard puzzle == nil, !isLoading else { return }
         registerVisit()
         if restoreSession(), !isFinished { return }
-        await load(.easy)
+        await load(isFirstLaunch ? .tutorial : .easy)
     }
 
     func load(_ selected: GameMode, seed explicitSeed: UInt32? = nil, rival opponent: Challenge? = nil) async {
@@ -141,6 +158,8 @@ final class GameModel: ObservableObject {
     }
 
     func reset() {
+        invalidateResetUndo()
+        correctionCell = nil
         sounds?.stop()
         if puzzle != nil, startedAt != nil, !isFinished { record(.restart) }
         attemptID = UUID().uuidString
@@ -151,6 +170,45 @@ final class GameModel: ObservableObject {
         accumulated = 0; segmentStart = nil
         completionMessage = nil
         saveSession()
+    }
+
+    func resetWithUndo() {
+        guard puzzle != nil, !isLoading, !isFinished, !isPaused else { return }
+        guard !route.isEmpty || highlighted != nil else { return }
+        let backup = ResetBackup(route: route, highlighted: highlighted, correction: correctionCell, preview: guidePreview,
+                                 message: message, startedAt: startedAt, elapsed: elapsed(at: now()),
+                                 attemptID: attemptID, expires: now().addingTimeInterval(8))
+        reset()
+        resetBackup = backup
+        canUndoReset = true
+        message = "やり直しました。8秒間、取り消せます"
+        resetExpiry = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(8)) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.invalidateResetUndo()
+        }
+    }
+
+    func undoReset() {
+        guard let backup = resetBackup, now() < backup.expires, !isPaused else {
+            if let backup = resetBackup, now() >= backup.expires { invalidateResetUndo() }
+            return
+        }
+        route = backup.route; highlighted = backup.highlighted
+        correctionCell = backup.correction
+        guidePreview = backup.preview; guideCue = UUID()
+        message = backup.message; startedAt = backup.startedAt
+        accumulated = backup.elapsed
+        segmentStart = startedAt == nil ? nil : now()
+        attemptID = backup.attemptID
+        invalidateResetUndo()
+        saveSession()
+    }
+
+    private func invalidateResetUndo() {
+        resetExpiry?.cancel(); resetExpiry = nil
+        resetBackup = nil; canUndoReset = false
+        if message == "やり直しました。8秒間、取り消せます" { message = nil }
     }
 
     /// Preserve every crossed cell, but encode/store only the final state of one input sample.
@@ -183,6 +241,12 @@ final class GameModel: ObservableObject {
             message = "そのマスは\(clue)番目に通ってね"
             return
         }
+        if mode == .tutorial, cell != puzzle.path[route.count] {
+            message = "練習では、目印のマスへ進もう。数字は通る順番です"
+            return
+        }
+        invalidateResetUndo()
+        correctionCell = nil
         beginClock()
         let keepsOpeningHint = route.isEmpty && highlighted == puzzle.path[1]
         route.append(cell)
@@ -197,6 +261,7 @@ final class GameModel: ObservableObject {
 
     func undo() {
         guard !isFinished, !isPaused, !route.isEmpty else { return }
+        invalidateResetUndo(); correctionCell = nil
         route.removeLast(); highlighted = nil; message = nil
         if isTracingSample { sampleSound = nil; sampleSelectionChanged = false }
         saveSession()
@@ -204,9 +269,11 @@ final class GameModel: ObservableObject {
 
     func hint() {
         guard let puzzle, hintsLeft > 0, highlighted == nil, !isFinished, !isPaused, mode != .tutorial else { return }
+        invalidateResetUndo()
         var correct = 0
         while correct < route.count, route[correct] == puzzle.path[correct] { correct += 1 }
         let corrected = correct < route.count
+        correctionCell = corrected ? puzzle.path[max(0, correct - 1)] : nil
         route = Array(route.prefix(correct))
         guard correct < puzzle.path.count else { return }
         let hintIndex = max(1, correct)
@@ -214,13 +281,36 @@ final class GameModel: ObservableObject {
         beginClock()
         hintsLeft -= 1
         record(.hint)
-        message = (corrected ? "\(correct)マス目まで戻しました。" : "") + hintGuidance
+        message = (corrected ? "分岐点（\(max(1, correct))マス目）まで戻しました。" : "") + hintGuidance
         saveSession()
     }
 
     private var correctPrefixCount: Int {
         guard let puzzle else { return 0 }
         return zip(route, puzzle.path).prefix(while: { $0.0 == $0.1 }).count
+    }
+
+    var guideCorrectionCell: Cell? {
+        guard let puzzle, correctPrefixCount < route.count else { return nil }
+        return puzzle.path[max(0, correctPrefixCount - 1)]
+    }
+
+    private var nextGuideIndices: [Int] {
+        guard let puzzle, !isFinished else { return [] }
+        let start = max(1, correctPrefixCount)
+        let nextClue = puzzle.clues.values.map { $0 - 1 }.filter { $0 >= start }.min() ?? (puzzle.path.count - 1)
+        let end = min(nextClue, start + 5, puzzle.path.count - 1)
+        return start <= end ? Array(start...end) : []
+    }
+
+    var guideOfferText: String {
+        let correction = guideCorrectionCell == nil ? "" : "分岐点（\(max(1, correctPrefixCount))マス目）まで戻って案内します。\n"
+        return correction + "広告を最後まで見ると、次の\(nextGuideIndices.count)マスを案内します。自分でなぞって進みましょう。"
+    }
+
+    var tutorialTarget: Cell? {
+        guard mode == .tutorial, let puzzle, !isFinished else { return nil }
+        return puzzle.path[min(correctPrefixCount, puzzle.path.count - 1)]
     }
 
     var canReplayGuide: Bool {
@@ -236,12 +326,15 @@ final class GameModel: ObservableObject {
     /// Previously purchased steps can always be viewed again without another ad.
     func replayGuide() {
         guard canReplayGuide, !isPaused else { return }
+        invalidateResetUndo()
         showGuidePreview()
         saveSession()
     }
 
     private func showGuidePreview() {
         let correct = correctPrefixCount
+        let returnPoint = guideCorrectionCell
+        correctionCell = returnPoint
         route = Array(route.prefix(correct))
         let start = max(1, correct)
         let available = Set(guidedIndices)
@@ -249,12 +342,13 @@ final class GameModel: ObservableObject {
         guidePreview = upcoming.isEmpty ? [] : [start - 1] + upcoming
         guideCue = UUID()
         highlighted = nil
-        message = "光った道をなぞって、その先を考えよう"
+        message = returnPoint == nil ? "光った道をなぞって、その先を考えよう" : "分岐点（\(max(1, correct))マス目）まで戻しました。目印からなぞってね"
     }
 
     /// A reward belongs to this attempt only; late/repeated ad callbacks cannot unlock another game.
     func beginSuperHintReward() -> UUID? {
         guard canRequestSuperHint, pendingSuperHint == nil else { return nil }
+        invalidateResetUndo()
         let token = UUID()
         pendingSuperHint = (token, attemptID)
         return token
@@ -269,12 +363,9 @@ final class GameModel: ObservableObject {
         guard let pending = pendingSuperHint, pending.token == token,
               pending.attempt == attemptID, canRequestSuperHint else { return false }
         pendingSuperHint = nil
-        guard let puzzle else { return false }
-        let start = max(1, correctPrefixCount)
-        let nextClueIndex = puzzle.clues.values.map { $0 - 1 }.filter { $0 >= start }.min() ?? (puzzle.path.count - 1)
-        let end = min(nextClueIndex, start + 5, puzzle.path.count - 1)
-        guard start <= end else { return false }
-        guidedIndices = Array(Set(guidedIndices + Array(start...end))).sorted()
+        let indices = nextGuideIndices
+        guard !indices.isEmpty else { return false }
+        guidedIndices = Array(Set(guidedIndices + indices)).sorted()
         superHintUnlocked = true
         showGuidePreview()
         highlighted = nil
@@ -309,6 +400,13 @@ final class GameModel: ObservableObject {
 
     var guidance: String {
         if isFinished { return "すべてのマスが、一本の線に。" }
+        if mode == .tutorial {
+            if route.isEmpty { return "数字は、そのマスを何番目に通るか。まず「1」から、目印へなぞろう" }
+            if route.count < 6 { return "いま\(route.count)マス目。「7」のマスは7番目に通ります。目印へ進もう" }
+            if route.count == 6 { return "次が7マス目！「7」のマスへ進もう" }
+            if route.count == 7 { return "そう！数字は通る順番。次は11番目に「11」へ" }
+            return "全マスを1回ずつ通ろう。次の数字は\(nextClue ?? 16)番目に通ります"
+        }
         guard !route.isEmpty, let nextClue else { return "「1」からなぞってスタート" }
         return "次の数字 \(nextClue) まで、あと \(nextClue - route.count) マス"
     }
@@ -497,7 +595,7 @@ final class GameModel: ObservableObject {
         if !wasUnlocked && progress.nightUnlocked {
             completionMessage = "今月10問達成！「夜空」の色が使えるようになったよ"
         } else if mode == .tutorial {
-            completionMessage = "準備できました。さくっと一問へ。"
+            completionMessage = "数字は、そのマスを何番目に通るか。さくっと一問へ！"
         } else if superHintUnlocked {
             completionMessage = "道案内で、つながりました。"
         } else if improved {

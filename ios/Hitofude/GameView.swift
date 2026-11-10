@@ -102,7 +102,7 @@ struct GameView: View {
             Button("広告を見る") { showRewardedHint() }
             Button("キャンセル", role: .cancel) { }
         } message: {
-            Text("広告1回で、次の数字までの道を最大6マス案内します。追加の案内は、もう一度広告を見ると使えます。自己ベストの対象にはなりません。\n現在はテスト広告です。Googleの広告SDKが通信し、IPアドレス・端末情報・広告操作情報などを扱います。プレイ分析への同意とは別の機能です。")
+            Text(game.guideOfferText + "\n追加の案内には再度広告が必要です。自己ベストの対象にはなりません。\n現在はテスト広告です。Googleの広告SDKが通信し、IPアドレス・端末情報・広告操作情報などを扱います。プレイ分析への同意とは別の機能です。")
         }
         .alert("広告を表示できません", isPresented: Binding(get: { rewardedHints.error != nil }, set: { if !$0 { rewardedHints.error = nil } })) {
             Button("閉じる", role: .cancel) { rewardedHints.error = nil }
@@ -135,7 +135,7 @@ struct GameView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     Text("ひと筆で、ぜんぶつなごう").font(.title2.bold())
                     Text("1のマスから、上下左右になぞります。ななめには進めません。")
-                    Text("数字のあるマスは、その順番に通りましょう。すべてのマスを1回ずつ通ればクリア！")
+                    Text("数字は、そのマスを何番目に通るかを表します。「7」のマスなら7番目。数字のないマスも数えて、すべてのマスを1回ずつ通ればクリア！")
                     Text("ひとつ前のマスへ戻ると、1手取り消せます。マスを順にタップしても遊べます。")
                     Text("難易度は盤面の上で選べます。効果音は画面上のスピーカーで切り替えます。消音モード中は鳴りません。")
                     Text("ヒントは1問につき3回。やり直しても回数は戻りません。使い切った後は、任意のテスト広告1回で、次の数字まで最大6マスの道を案内します。追加の広告で何度でも使え、案内済みの区間は無料で見直せます。広告表示にはGoogleへの通信が必要です。道案内使用時は自己ベストの対象外です。")
@@ -176,7 +176,7 @@ struct GameView: View {
     @ViewBuilder
     private var playArea: some View {
         if let puzzle = game.puzzle {
-            BoardView(game: game, puzzle: puzzle)
+            BoardView(game: game, puzzle: puzzle, previewCorrection: showsRewardOffer ? game.guideCorrectionCell : nil)
                 .overlay {
                     if game.isPaused && !game.isFinished {
                         ZStack {
@@ -362,7 +362,7 @@ struct GameView: View {
             }
             Text(game.message ?? game.guidance).font(.caption.bold()).multilineTextAlignment(.center)
                 .foregroundStyle(game.message == nil ? palette.foreground : palette.accent)
-                .lineLimit(typeSize.isAccessibilitySize ? 8 : 2, reservesSpace: !typeSize.isAccessibilitySize)
+                .lineLimit(typeSize.isAccessibilitySize ? 8 : (game.mode == .tutorial ? 3 : 2), reservesSpace: !typeSize.isAccessibilitySize)
                 .accessibilityAddTraits(.updatesFrequently)
             if game.mode == .daily, game.seed != GameMode.dailySeed(), game.puzzle != nil {
                 Text("保存した日の問題（\(String(game.seed))）").font(.caption).foregroundStyle(.secondary)
@@ -414,9 +414,14 @@ struct GameView: View {
         }.disabled(game.route.isEmpty || game.isFinished)
     }
     private var resetButton: some View {
-        Button { game.reset() } label: {
-            Text("やり直す").lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity, minHeight: 32)
+        Button {
+            if game.canUndoReset { game.undoReset() } else { game.resetWithUndo() }
+        } label: {
+            Text(game.canUndoReset ? "取り消す" : "やり直す")
+                .lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity, minHeight: 32)
         }
+        .accessibilityLabel(game.canUndoReset ? "やり直しを取り消す" : "やり直す")
+        .disabled(game.isPaused || (!game.canUndoReset && game.route.isEmpty && game.highlighted == nil))
     }
     private var completion: some View {
         CompletionPanel(
@@ -640,6 +645,7 @@ private struct BoardView: View {
     @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
+    var previewCorrection: Cell? = nil
 
     var body: some View {
         GeometryReader { geometry in
@@ -719,6 +725,8 @@ private struct BoardView: View {
         let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
         let isTarget = clue != nil && clue == nextClue
         let isHint = game.highlighted == cell
+        let isReturnPoint = (previewCorrection ?? game.correctionCell) == cell
+        let isPracticeTarget = game.tutorialTarget == cell
         let hintLabel = isHint ? "ヒント：\(game.hintNumber ?? game.route.count + 1)番目に進むマス" : isTarget ? "次に目指す数字" : ""
         return Button { game.step(cell) } label: {
             ZStack {
@@ -729,6 +737,14 @@ private struct BoardView: View {
                     Text("\(number)")
                         .font(.system(size: max(14, step * 0.38), weight: clue != nil ? .bold : .regular, design: .rounded))
                         .foregroundStyle(palette.foreground)
+                }
+                if isReturnPoint {
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, lineWidth: 4)
+                    Text("戻る位置").font(.system(size: max(8, step * 0.13), weight: .bold))
+                        .padding(2).background(palette.accent, in: Capsule()).foregroundStyle(palette.background)
+                        .offset(y: -step * 0.30)
+                } else if isPracticeTarget {
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, style: StrokeStyle(lineWidth: 3, dash: [4]))
                 }
                 if let glowingGuideIndex, puzzle.path.indices.contains(glowingGuideIndex), puzzle.path[glowingGuideIndex] == cell {
                     RoundedRectangle(cornerRadius: 8)
@@ -749,7 +765,7 @@ private struct BoardView: View {
         .buttonStyle(.plain)
         .position(center(of: cell, step: step))
         .accessibilityLabel("\(cell.row + 1)行\(cell.column + 1)列、\(clueLabel)\(orderLabel)")
-        .accessibilityHint(hintLabel)
+        .accessibilityHint(isReturnPoint ? "ここまで戻って案内します" : isPracticeTarget ? "練習で次に進むマス" : hintLabel)
     }
 
     private func center(of cell: Cell, step: CGFloat) -> CGPoint {

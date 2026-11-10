@@ -283,7 +283,7 @@ final class HitofudeTests: XCTestCase {
         game.step(Cell(row: 0, column: 0))
         game.step(Cell(row: 1, column: 1)) // Diagonal.
         XCTAssertEqual(game.route.count, 1)
-        game.step(Cell(row: 1, column: 0))
+        game.step(Cell(row: 0, column: 1))
         game.step(Cell(row: 1, column: 1)) // Clue 7 cannot be third.
         XCTAssertEqual(game.route.count, 2)
         game.step(Cell(row: 0, column: 0)) // Backtrack.
@@ -562,9 +562,16 @@ final class HitofudeTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         let game = GameModel(defaults: defaults)
+        game.setActive(true) // Scene activation may arrive before the initial task.
         await game.startInitialGame()
-        XCTAssertEqual(game.mode, .easy)
-        XCTAssertEqual(game.puzzle?.size, 5)
+        XCTAssertEqual(game.mode, .tutorial)
+        XCTAssertEqual(game.puzzle?.size, 4)
+        XCTAssertTrue(game.guidance.contains("何番目"))
+        for cell in Puzzle.tutorial.path.prefix(6) { game.step(cell) }
+        XCTAssertTrue(game.guidance.contains("次が7マス目"))
+        XCTAssertEqual(game.tutorialTarget, Puzzle.tutorial.path[6])
+        game.step(Puzzle.tutorial.path[6])
+        XCTAssertTrue(game.guidance.contains("数字は通る順番"))
         await game.load(.hard, seed: 1000)
         let puzzle = try XCTUnwrap(game.puzzle)
         game.step(puzzle.path[0])
@@ -645,6 +652,87 @@ final class HitofudeTests: XCTestCase {
         let saved = try XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(object["elapsed"] as? Double), 12.345, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testResetUndoRestoresRouteClockAndHintWithoutRefillingBudget() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var date = Date(timeIntervalSince1970: 1_000_000)
+        let game = GameModel(defaults: defaults, now: { date })
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        game.step(puzzle.path[0]); game.step(puzzle.path[1]); game.hint()
+        date = date.addingTimeInterval(12)
+        let route = game.route
+        let hint = game.highlighted
+        game.resetWithUndo()
+        XCTAssertTrue(game.canUndoReset)
+        XCTAssertTrue(game.route.isEmpty)
+        XCTAssertEqual(game.hintsLeft, 2)
+        date = date.addingTimeInterval(3)
+        game.undoReset()
+        XCTAssertEqual(game.route, route)
+        XCTAssertEqual(game.highlighted, hint)
+        XCTAssertEqual(game.hintsLeft, 2)
+        XCTAssertEqual(game.elapsed(at: date), 12)
+        let restored = GameModel(defaults: defaults, now: { date })
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.route, route)
+        XCTAssertEqual(restored.hintsLeft, 2)
+        game.resetWithUndo()
+        date = date.addingTimeInterval(9)
+        game.undoReset()
+        XCTAssertTrue(game.route.isEmpty)
+        XCTAssertFalse(game.canUndoReset)
+        game.step(puzzle.path[0]); game.resetWithUndo(); game.step(puzzle.path[0])
+        game.undoReset()
+        XCTAssertFalse(game.canUndoReset)
+        XCTAssertEqual(game.route, [puzzle.path[0]])
+        game.resetWithUndo()
+        await game.load(.easy, seed: 1001)
+        game.undoReset()
+        XCTAssertTrue(game.route.isEmpty)
+        XCTAssertFalse(game.canUndoReset)
+    }
+
+    @MainActor
+    func testGuideOfferMatchesRewardAndExplainsWrongTurnCorrection() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        let puzzle = try XCTUnwrap(game.puzzle)
+        for _ in 0..<3 { game.hint(); game.reset() }
+        for index in 1..<puzzle.path.count {
+            let previous = puzzle.path[index - 1]
+            if let wrong = puzzle.path.first(where: {
+                previous.isAdjacent(to: $0) && !puzzle.path.prefix(index).contains($0) &&
+                $0 != puzzle.path[index] && (puzzle.clues[$0] == nil || puzzle.clues[$0] == index + 1)
+            }) {
+                for cell in puzzle.path.prefix(index) { game.step(cell) }
+                game.step(wrong)
+                let countBefore = game.guidedIndices.count
+                let offer = game.guideOfferText
+                XCTAssertTrue(offer.contains("分岐点（\(index)マス目）"))
+                XCTAssertEqual(game.guideCorrectionCell, previous)
+                XCTAssertEqual(game.route.last, wrong, "The offer must not change the route before consent")
+                let cancelled = try XCTUnwrap(game.beginSuperHintReward())
+                game.cancelSuperHintReward(cancelled)
+                XCTAssertEqual(game.route.last, wrong)
+                XCTAssertTrue(game.earnSuperHint(try XCTUnwrap(game.beginSuperHintReward())))
+                XCTAssertTrue(offer.contains("次の\(game.guidedIndices.count - countBefore)マス"))
+                XCTAssertEqual(game.route, Array(puzzle.path.prefix(index)))
+                XCTAssertEqual(game.correctionCell, previous)
+                XCTAssertTrue(game.message?.contains("戻しました") == true)
+                game.step(puzzle.path[index])
+                XCTAssertNil(game.correctionCell)
+                return
+            }
+        }
+        XCTFail("Fixture must contain a legal wrong turn")
     }
 
     @MainActor
