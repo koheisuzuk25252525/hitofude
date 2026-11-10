@@ -362,7 +362,7 @@ final class HitofudeTests: XCTestCase {
         let afterReset = GameModel(defaults: defaults, now: { date })
         await afterReset.startInitialGame()
         XCTAssertTrue(afterReset.route.isEmpty)
-        XCTAssertEqual(afterReset.hintsLeft, 3)
+        XCTAssertEqual(afterReset.hintsLeft, 2)
         XCTAssertEqual(afterReset.elapsed(at: date), 0)
     }
 
@@ -645,6 +645,52 @@ final class HitofudeTests: XCTestCase {
         let saved = try XCTUnwrap(defaults.data(forKey: "hitofude.session.v1"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
         XCTAssertEqual(try XCTUnwrap(object["elapsed"] as? Double), 12.345, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testRestartPreservesHintBudgetAndRewardAcrossRelaunch() async throws {
+        let name = "hitofude-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let game = GameModel(defaults: defaults)
+        await game.load(.easy, seed: 1000)
+        XCTAssertNil(game.beginSuperHintReward())
+        for remaining in [2, 1, 0] {
+            game.hint()
+            game.reset()
+            XCTAssertEqual(game.hintsLeft, remaining)
+        }
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.hintsLeft, 0)
+        XCTAssertFalse(restored.superHintUnlocked)
+        let cancelled = try XCTUnwrap(restored.beginSuperHintReward())
+        restored.cancelSuperHintReward(cancelled)
+        XCTAssertFalse(restored.earnSuperHint(cancelled))
+        let stale = try XCTUnwrap(restored.beginSuperHintReward())
+        restored.reset()
+        XCTAssertFalse(restored.earnSuperHint(stale))
+        let token = try XCTUnwrap(restored.beginSuperHintReward())
+        XCTAssertNil(restored.beginSuperHintReward())
+        restored.setActive(false)
+        XCTAssertTrue(restored.earnSuperHint(token))
+        XCTAssertFalse(restored.earnSuperHint(token))
+        restored.reset()
+        XCTAssertTrue(restored.superHintUnlocked)
+        let rewarded = GameModel(defaults: defaults)
+        await rewarded.startInitialGame()
+        XCTAssertTrue(rewarded.superHintUnlocked)
+        XCTAssertEqual(rewarded.hintsLeft, 0)
+        let puzzle = try XCTUnwrap(rewarded.puzzle)
+        for cell in puzzle.path { rewarded.step(cell) }
+        XCTAssertTrue(rewarded.isFinished)
+        XCTAssertNil(rewarded.best)
+        XCTAssertNil(rewarded.challenge)
+        XCTAssertTrue(rewarded.shareText.contains("スーパーヒント使用"))
+        await rewarded.load(.easy, seed: 1001)
+        XCTAssertEqual(rewarded.hintsLeft, 3)
+        XCTAssertFalse(rewarded.superHintUnlocked)
+        XCTAssertFalse(rewarded.earnSuperHint(token))
     }
 
     @MainActor

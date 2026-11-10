@@ -34,6 +34,8 @@ private extension EnvironmentValues {
 
 struct GameView: View {
     @StateObject private var game = GameModel(analytics: PlayAnalytics.shared, sounds: GameAudio.shared)
+    @StateObject private var rewardedHints = RewardedHints()
+    @State private var showsRewardOffer = false
     @ObservedObject private var audio = GameAudio.shared
     @State private var showsAnalytics = false
     @State private var showsFeedback = false
@@ -76,7 +78,7 @@ struct GameView: View {
     var body: some View {
         ZStack {
             playingScreen
-                .allowsHitTesting(!showsResult)
+                .allowsHitTesting(!showsResult && !rewardedHints.isBusy)
                 .accessibilityHidden(showsResult)
             if showsResult && game.isFinished {
                 Color.black.opacity(0.2).ignoresSafeArea()
@@ -84,6 +86,25 @@ struct GameView: View {
                 completion.padding(12)
             }
         }
+        .overlay {
+            if rewardedHints.isLoading {
+                VStack(spacing: 16) {
+                    ProgressView("広告を読み込んでいます")
+                    Button("キャンセル") { rewardedHints.cancelLoading() }
+                }.padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+            }
+        }
+        .onChange(of: rewardedHints.isBusy) { _, _ in updateActivity() }
+        .onChange(of: showsRewardOffer) { _, _ in updateActivity() }
+        .alert("スーパーヒント", isPresented: $showsRewardOffer) {
+            Button("広告を見る") { showRewardedHint() }
+            Button("キャンセル", role: .cancel) { }
+        } message: {
+            Text("広告を最後まで見ると、ゴールまでの正しい順番を表示します。自己ベストの対象にはなりません。\n現在はテスト広告です。Googleの広告SDKが通信し、IPアドレス・端末情報・広告操作情報などを扱います。プレイ分析への同意とは別の機能です。")
+        }
+        .alert("広告を表示できません", isPresented: Binding(get: { rewardedHints.error != nil }, set: { if !$0 { rewardedHints.error = nil } })) {
+            Button("閉じる", role: .cancel) { rewardedHints.error = nil }
+        } message: { Text(rewardedHints.error ?? "") }
         .foregroundStyle(palette.foreground)
         .tint(palette.accent)
         .environment(\.hitofudePalette, palette)
@@ -241,7 +262,7 @@ struct GameView: View {
 
     private func updateActivity() {
         // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
-        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil
+        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
@@ -354,9 +375,20 @@ struct GameView: View {
         .buttonStyle(.bordered)
         .controlSize(.large)
     }
-    private var hintButton: some View {
-        Button("ヒント \(game.hintsLeft)") { game.hint() }
-            .disabled(game.hintsLeft == 0 || game.highlighted != nil || game.isFinished || game.isPaused || game.mode == .tutorial)
+    @ViewBuilder private var hintButton: some View {
+        if game.hintsLeft == 0 {
+            Button(game.superHintUnlocked ? "道順を表示中" : "スーパーヒント") { showsRewardOffer = true }
+                .disabled(!game.canRequestSuperHint || game.isPaused || rewardedHints.isBusy)
+        } else {
+            Button("ヒント \(game.hintsLeft)") { game.hint() }
+                .disabled(game.highlighted != nil || game.isFinished || game.isPaused || game.mode == .tutorial)
+        }
+    }
+    private func showRewardedHint() {
+        guard let token = game.beginSuperHintReward() else { return }
+        rewardedHints.show(reward: { _ = game.earnSuperHint(token) },
+                           completion: { game.cancelSuperHintReward(token) })
+        updateActivity()
     }
     private var undoButton: some View {
         Button("ひとつ戻す") { game.undo() }.disabled(game.route.isEmpty || game.isFinished)
@@ -588,11 +620,12 @@ private struct BoardView: View {
             let width = geometry.size.width
             let step = width / CGFloat(puzzle.size)
             let orders = Dictionary(uniqueKeysWithValues: game.route.enumerated().map { ($0.element, $0.offset + 1) })
+            let solution = game.superHintUnlocked ? Dictionary(uniqueKeysWithValues: puzzle.path.enumerated().map { ($0.element, $0.offset + 1) }) : [:]
             let nextClue = game.nextClue
             ZStack {
                 RoundedRectangle(cornerRadius: 18).fill(palette.cell)
                 ForEach(0..<(puzzle.size * puzzle.size), id: \.self) { index in
-                    cellView(index: index, step: step, order: orders[Cell(row: index / puzzle.size, column: index % puzzle.size)], nextClue: nextClue)
+                    cellView(index: index, step: step, order: orders[Cell(row: index / puzzle.size, column: index % puzzle.size)], nextClue: nextClue, solution: solution[Cell(row: index / puzzle.size, column: index % puzzle.size)])
                 }
                 Path { path in
                     for (index, cell) in game.route.enumerated() {
@@ -616,9 +649,9 @@ private struct BoardView: View {
         }
     }
 
-    private func cellView(index: Int, step: CGFloat, order: Int?, nextClue: Int?) -> some View {
+    private func cellView(index: Int, step: CGFloat, order: Int?, nextClue: Int?, solution: Int?) -> some View {
         let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
-        let clue = puzzle.clues[cell]
+        let clue = solution ?? puzzle.clues[cell]
         let clueLabel = clue.map { "数字\($0)" } ?? "空白"
         let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
         let isTarget = clue != nil && clue == nextClue

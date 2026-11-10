@@ -46,7 +46,7 @@ enum PlayEvent: String {
     case ready = "puzzle_ready", start = "puzzle_start", hint = "hint_used"
     case complete = "puzzle_complete", leave = "puzzle_leave", restart = "puzzle_restart"
     case pause = "puzzle_pause", resume = "puzzle_resume", restored = "puzzle_restored"
-    case generationFailed = "puzzle_generation_failed"
+    case generationFailed = "puzzle_generation_failed", superHint = "super_hint_used"
 }
 
 @MainActor

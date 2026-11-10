@@ -10,6 +10,8 @@ final class GameModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isFinished = false
     @Published private(set) var hintsLeft = 3
+    @Published private(set) var superHintUnlocked = false
+    private var pendingSuperHint: (token: UUID, attempt: String)?
     @Published private(set) var highlighted: Cell?
     @Published private(set) var message: String?
     @Published private(set) var startedAt: Date?
@@ -89,6 +91,8 @@ final class GameModel: ObservableObject {
         let cursorKey = "hitofude.prepared.\(selected.rawValue)"
         let cursor = defaults.object(forKey: cursorKey) == nil ? Int.random(in: 0..<16) : defaults.integer(forKey: cursorKey)
         puzzle = nil
+        hintsLeft = 3
+        superHintUnlocked = false
         reset()
         isLoading = true
         best = defaults.object(forKey: "hitofude.best.\(selected.rawValue)") as? Double
@@ -136,7 +140,8 @@ final class GameModel: ObservableObject {
         sounds?.stop()
         if puzzle != nil, startedAt != nil, !isFinished { record(.restart) }
         attemptID = UUID().uuidString
-        route = []; isFinished = false; hintsLeft = 3; highlighted = nil
+        route = []; isFinished = false; highlighted = nil
+        pendingSuperHint = nil
         message = nil; startedAt = nil; finishedAt = nil
         accumulated = 0; segmentStart = nil
         completionMessage = nil
@@ -208,6 +213,37 @@ final class GameModel: ObservableObject {
         saveSession()
     }
 
+    var canRequestSuperHint: Bool {
+        puzzle != nil && !isLoading && !isFinished && hintsLeft == 0 &&
+            !superHintUnlocked && mode != .tutorial
+    }
+
+    /// A reward belongs to this attempt only; late/repeated ad callbacks cannot unlock another game.
+    func beginSuperHintReward() -> UUID? {
+        guard canRequestSuperHint, pendingSuperHint == nil else { return nil }
+        let token = UUID()
+        pendingSuperHint = (token, attemptID)
+        return token
+    }
+
+    func cancelSuperHintReward(_ token: UUID) {
+        if pendingSuperHint?.token == token { pendingSuperHint = nil }
+    }
+
+    @discardableResult
+    func earnSuperHint(_ token: UUID) -> Bool {
+        guard let pending = pendingSuperHint, pending.token == token,
+              pending.attempt == attemptID, canRequestSuperHint else { return false }
+        pendingSuperHint = nil
+        superHintUnlocked = true
+        highlighted = nil
+        beginClock()
+        message = "スーパーヒント：数字の順になぞってみよう"
+        record(.superHint)
+        saveSession()
+        return true
+    }
+
     var hintNumber: Int? {
         guard let highlighted, let index = puzzle?.path.firstIndex(of: highlighted) else { return nil }
         return index + 1
@@ -243,7 +279,7 @@ final class GameModel: ObservableObject {
     }
 
     var shareText: String {
-        let summary = "ヒトフデ \(mode.title) \(puzzle?.size ?? 0)×\(puzzle?.size ?? 0) \(Self.timeString(finalTime ?? elapsed(at: now())))\nヒント \(3 - hintsLeft)回\nseed: \(seed)"
+        let summary = "ヒトフデ \(mode.title) \(puzzle?.size ?? 0)×\(puzzle?.size ?? 0) \(Self.timeString(finalTime ?? elapsed(at: now())))\nヒント \(3 - hintsLeft)回\(superHintUnlocked ? "・スーパーヒント使用" : "")\nseed: \(seed)"
         guard let rival, let finalTime else { return summary }
         let seconds = Int(finalTime.rounded())
         return summary + "\nリンクを送った人：\(Self.timeString(TimeInterval(rival.seconds)))\n挑戦した人：\(Self.timeString(TimeInterval(seconds)))\nタイム差：\(abs(seconds - rival.seconds))秒\n\(verdict ?? "")"
@@ -256,7 +292,7 @@ final class GameModel: ObservableObject {
             "is_challenge": rival == nil ? 0 : 1,
             "progress_bucket": min(10, route.count * 10 / total) * 10,
             "elapsed_seconds": Int(min(31_536_000, max(0, elapsed(at: now())))),
-            "hints_used": 3 - hintsLeft, "started": startedAt == nil ? 0 : 1, "completed": isFinished ? 1 : 0
+            "hints_used": 3 - hintsLeft, "super_hint_used": superHintUnlocked ? 1 : 0, "started": startedAt == nil ? 0 : 1, "completed": isFinished ? 1 : 0
         ]
         if let reason { parameters["reason"] = reason }
         analytics?.record(event, parameters: parameters)
@@ -265,7 +301,7 @@ final class GameModel: ObservableObject {
     var feedbackContext: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
-        return "ヒトフデ \(version)（\(build)）\n\(UIDevice.current.model) / iOS \(UIDevice.current.systemVersion)\n難易度：\(mode.title) / seed：\(seed)\n進捗：\(route.count)/\(mode.size * mode.size)、ヒント残り：\(hintsLeft)"
+        return "ヒトフデ \(version)（\(build)）\n\(UIDevice.current.model) / iOS \(UIDevice.current.systemVersion)\n難易度：\(mode.title) / seed：\(seed)\n進捗：\(route.count)/\(mode.size * mode.size)、ヒント残り：\(hintsLeft)、スーパーヒント：\(superHintUnlocked ? "使用" : "未使用")"
     }
 
     private func beginClock() {
@@ -310,6 +346,7 @@ final class GameModel: ObservableObject {
         let puzzle: Puzzle
         let route: [Cell]
         let hintsLeft: Int
+        let superHintUnlocked: Bool?
         let highlighted: Cell?
         let elapsed: TimeInterval
         let hasStarted: Bool
@@ -335,7 +372,8 @@ final class GameModel: ObservableObject {
                   }),
                   (0...3).contains(hintsLeft), elapsed.isFinite, (0...31_536_000).contains(elapsed),
                   isFinished == (route.count == count),
-                  hasStarted || (route.isEmpty && elapsed == 0 && hintsLeft == 3),
+                  hasStarted || (route.isEmpty && elapsed == 0),
+                  superHintUnlocked != true || (hintsLeft == 0 && mode != .tutorial),
                   highlighted == nil || (puzzle.path.contains(highlighted!) && !isFinished),
                   rival == nil || (rival!.isValid && rival!.mode == mode && rival!.seed == seed)
             else { return false }
@@ -347,7 +385,7 @@ final class GameModel: ObservableObject {
         if isTracingSample { sampleNeedsSave = true; return }
         guard let puzzle, !isLoading else { return }
         let session = Session(attemptID: attemptID, version: 1, mode: mode, seed: seed, puzzle: puzzle,
-                              route: route, hintsLeft: hintsLeft, highlighted: highlighted,
+                              route: route, hintsLeft: hintsLeft, superHintUnlocked: superHintUnlocked, highlighted: highlighted,
                               elapsed: elapsed(at: now()), hasStarted: startedAt != nil,
                               isFinished: isFinished, rival: rival)
         guard let data = try? JSONEncoder().encode(session) else { return }
@@ -364,6 +402,7 @@ final class GameModel: ObservableObject {
         attemptID = session.attemptID.flatMap { UUID(uuidString: $0) }?.uuidString ?? UUID().uuidString
         mode = session.mode; seed = session.seed; puzzle = session.puzzle
         route = session.route; hintsLeft = session.hintsLeft; highlighted = session.highlighted
+        superHintUnlocked = session.superHintUnlocked ?? false
         rival = session.rival; isFinished = session.isFinished; accumulated = session.elapsed
         startedAt = session.hasStarted ? now() : nil
         finishedAt = session.isFinished ? now() : nil
@@ -375,7 +414,7 @@ final class GameModel: ObservableObject {
     }
 
     var challenge: Challenge? {
-        guard isFinished, mode != .tutorial else { return nil }
+        guard isFinished, mode != .tutorial, !superHintUnlocked else { return nil }
         let seconds = Int(elapsed(at: now()).rounded())
         let result = Challenge(mode: mode, seed: seed, seconds: seconds)
         return result.isValid ? result : nil
@@ -383,6 +422,7 @@ final class GameModel: ObservableObject {
 
     var verdict: String? {
         guard isFinished, let rival else { return nil }
+        if superHintUnlocked { return "スーパーヒント使用（タイム比較なし）" }
         let seconds = Int(elapsed(at: now()).rounded())
         if seconds < rival.seconds { return "あなたの勝ち！" }
         if seconds == rival.seconds { return "引き分け！" }
@@ -395,14 +435,14 @@ final class GameModel: ObservableObject {
         record(.complete)
         if isTracingSample { sampleSound = .clear } else { sounds?.play(.clear) }
         let seconds = accumulated
-        let improved = best.map { seconds < $0 } ?? false
+        let improved = !superHintUnlocked && (best.map { seconds < $0 } ?? false)
         if mode == .tutorial {
             defaults.set(true, forKey: "hitofude.tutorialCompleted")
-        } else if best == nil || seconds < best! {
+        } else if !superHintUnlocked && (best == nil || seconds < best!) {
             best = seconds
             defaults.set(seconds, forKey: "hitofude.best.\(mode.rawValue)")
         }
-        if mode == .daily { defaults.set(seconds, forKey: "hitofude.daily.\(seed)") }
+        if mode == .daily, !superHintUnlocked { defaults.set(seconds, forKey: "hitofude.daily.\(seed)") }
         let wasUnlocked = progress.nightUnlocked
         progress.record(mode: mode, seed: seed, at: now())
         if let data = try? JSONEncoder().encode(progress) {
@@ -412,6 +452,8 @@ final class GameModel: ObservableObject {
             completionMessage = "今月10問達成！「夜空」の色が使えるようになったよ"
         } else if mode == .tutorial {
             completionMessage = "準備できました。さくっと一問へ。"
+        } else if superHintUnlocked {
+            completionMessage = "スーパーヒントで、つながりました。"
         } else if improved {
             completionMessage = "自己ベストを更新！"
         } else {
