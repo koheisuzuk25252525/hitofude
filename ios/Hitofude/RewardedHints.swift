@@ -16,7 +16,8 @@ enum AdPlacement {
         return test
         #else
         // Fail closed: TestFlight, local installs and unverifiable transactions use test ads.
-        guard let result = try? await AppTransaction.shared,
+        guard Bundle.main.path(forResource: "embedded", ofType: "mobileprovision") == nil,
+              let result = try? await AppTransaction.shared,
               case .verified(let transaction) = result else { return test }
         return unitID(isDebug: false, verifiedProduction: transaction.environment == .production)
         #endif
@@ -85,14 +86,26 @@ final class RewardedHints: NSObject, ObservableObject, FullScreenContentDelegate
 
     func showPrivacyOptions() {
         guard !isBusy else { return }
+        let id = UUID()
+        requestID = id
         isBusy = true
+        isLoading = true
         error = nil
+        timeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, let self, self.requestID == id, self.isLoading else { return }
+            self.fail()
+        }
         Task { @MainActor in
+            let refreshed = await consent.refresh()
+            guard self.requestID == id else { return }
             defer { self.finish() }
-            guard await consent.refresh(), self.isActive() else {
+            guard refreshed, self.isActive() else {
                 self.error = "広告の設定を確認できませんでした。通信環境を確認してお試しください。"
                 return
             }
+            self.timeout?.cancel()
+            self.isLoading = false
             do {
                 if consent.requiresPrivacyOptions {
                     try await consent.presentPrivacyOptions()

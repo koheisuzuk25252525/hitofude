@@ -28,6 +28,35 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
+    func testConsentFormErrorBlocksAdsEvenWhenPreviousConsentAllowedThem() async {
+        let consent = TestAdConsent()
+        consent.canRequestAds = true
+        consent.failForm = true
+        let hints = RewardedHints(consent: consent, isActive: { true })
+        let finished = expectation(description: "Form error completes")
+        hints.show(reward: { XCTFail("Form error cannot earn") }, completion: { finished.fulfill() })
+        await fulfillment(of: [finished], timeout: 2)
+        XCTAssertEqual(consent.formCount, 1)
+        XCTAssertFalse(hints.isBusy)
+        XCTAssertNotNil(hints.error)
+    }
+
+    @MainActor
+    func testCancelledPrivacyRefreshDoesNotOpenLateForm() async {
+        let consent = TestAdConsent()
+        consent.suspendRefresh = true
+        let hints = RewardedHints(consent: consent, isActive: { true })
+        hints.showPrivacyOptions()
+        while consent.resumeRefresh == nil { await Task.yield() }
+        hints.cancelLoading()
+        consent.resumeRefresh?.resume(returning: true)
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(consent.formCount, 0)
+        XCTAssertFalse(hints.isBusy)
+    }
+
+    @MainActor
     func testCancelledConsentRefreshCannotPresentFormOrGrantReward() async {
         let consent = TestAdConsent()
         consent.suspendRefresh = true
@@ -1341,12 +1370,16 @@ private final class TestAdConsent: AdConsentProviding {
     var suspendRefresh = false
     var resumeRefresh: CheckedContinuation<Bool, Never>?
     var formCount = 0
+    var failForm = false
     var canRequestAds = false
     var requiresPrivacyOptions = true
     func refresh() async -> Bool {
         if suspendRefresh { return await withCheckedContinuation { resumeRefresh = $0 } }
         return refreshSucceeds
     }
-    func presentIfRequired() async throws { formCount += 1 }
+    func presentIfRequired() async throws {
+        formCount += 1
+        if failForm { throw NSError(domain: "TestConsent", code: 1) }
+    }
     func presentPrivacyOptions() async throws { formCount += 1 }
 }
