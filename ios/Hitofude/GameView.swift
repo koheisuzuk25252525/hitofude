@@ -153,7 +153,7 @@ struct GameView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showsMore = false
     @State private var showsResult = false
-    private enum MoreDestination { case feedback, analytics, challenge, progress }
+    private enum MoreDestination { case feedback, analytics, challenge, progress, adPrivacy }
     @State private var pendingDestination: MoreDestination?
     @State private var showsProgress = false
     @State private var showsHelp = false
@@ -211,9 +211,9 @@ struct GameView: View {
             Button("広告を見る") { showRewardedHint() }
             Button("キャンセル", role: .cancel) { }
         } message: {
-            Text(game.guideOfferText + "\n追加の案内には再度広告が必要です。自己ベストの対象にはなりません。\n現在はテスト広告です。Googleの広告SDKが通信し、IPアドレス・端末情報・広告操作情報などを扱います。プレイ分析への同意とは別の機能です。")
+            Text(game.guideOfferText + "\n追加の案内には再度広告が必要です。自己ベストの対象にはなりません。\nGoogleがIPアドレス・端末情報・広告操作情報などを扱います。必要な場合は広告の前に同意設定を表示します。プレイ分析の設定とは別です。" + (rewardedHints.usesTestAds ? "\n現在はテスト広告です。" : ""))
         }
-        .alert("広告を表示できません", isPresented: Binding(get: { rewardedHints.error != nil }, set: { if !$0 { rewardedHints.error = nil } })) {
+        .alert("広告について", isPresented: Binding(get: { rewardedHints.error != nil }, set: { if !$0 { rewardedHints.error = nil } })) {
             Button("閉じる", role: .cancel) { rewardedHints.error = nil }
         } message: { Text(rewardedHints.error ?? "") }
         .foregroundStyle(palette.foreground)
@@ -221,6 +221,7 @@ struct GameView: View {
         .environment(\.hitofudePalette, palette)
         .preferredColorScheme(game.isNightTheme ? .dark : nil)
         .task { await game.startInitialGame() }
+        .task { await rewardedHints.prepare() }
         .onChange(of: scenePhase, initial: true) { _, phase in
             updateActivity()
         }
@@ -247,7 +248,7 @@ struct GameView: View {
                     Text("数字は、そのマスを何番目に通るかを表します。「7」のマスなら7番目。数字のないマスも数えて、すべてのマスを1回ずつ通ればクリア！")
                     Text("ひとつ前のマスへ戻ると、1手取り消せます。マスを順にタップしても遊べます。")
                     Text("難易度は盤面の上で選べます。効果音は画面上のスピーカーで切り替えます。消音モード中は鳴りません。")
-                    Text("ヒントは1問につき3回。やり直しても回数は戻りません。使い切った後は、任意のテスト広告1回で、次の数字まで最大6マスの道を案内します。追加の広告で何度でも使え、案内済みの区間は無料で見直せます。広告表示にはGoogleへの通信が必要です。道案内使用時は自己ベストの対象外です。")
+                    Text("ヒントは1問につき3回。やり直しても回数は戻りません。使い切った後は、任意の広告1回で、次の数字まで最大6マスの道を案内します。追加の広告で何度でも使え、案内済みの区間は無料で見直せます。広告表示にはGoogleへの通信が必要です。道案内使用時は自己ベストの対象外です。")
                     Link("プライバシーポリシー", destination: URL(string: "https://koheisuzuk25252525.github.io/hitofude/privacy.html")!)
                     Link("サポート・お問い合わせ", destination: URL(string: "https://koheisuzuk25252525.github.io/hitofude/support.html")!)
                     Text("バージョン \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")（\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")）")
@@ -334,6 +335,7 @@ struct GameView: View {
         switch destination {
         case .feedback: showsFeedback = true
         case .analytics: showsAnalytics = true
+        case .adPrivacy: rewardedHints.showPrivacyOptions()
         case .challenge: showsChallenge = true
         case .progress: showsProgress = true
         case nil: break
@@ -359,6 +361,7 @@ struct GameView: View {
                         chooseMore(.feedback)
                     }
                     Button("プレイ状況の計測") { chooseMore(.analytics) }
+                    Button("広告のプライバシー設定") { chooseMore(.adPrivacy) }
                     Text("ヒントは3回。中断中はタイマーが止まります。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }.padding(20)

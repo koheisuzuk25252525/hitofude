@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-2673589317149443~3945033649</string>
 	<key>GADDelayAppMeasurementInit</key>
 	<true/>
 	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
