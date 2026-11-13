@@ -5,6 +5,45 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testProductionAdsRequireVerifiedProductionAndNonDebugBuild() {
+        XCTAssertEqual(AdPlacement.unitID(isDebug: true, verifiedProduction: true), AdPlacement.test)
+        XCTAssertEqual(AdPlacement.unitID(isDebug: true, verifiedProduction: false), AdPlacement.test)
+        XCTAssertEqual(AdPlacement.unitID(isDebug: false, verifiedProduction: false), AdPlacement.test)
+        XCTAssertEqual(AdPlacement.unitID(isDebug: false, verifiedProduction: true), AdPlacement.production)
+    }
+
+    @MainActor
+    func testConsentFailureAndDeniedRequestNeverGrantReward() async {
+        for refreshSucceeds in [false, true] {
+            let consent = TestAdConsent()
+            consent.refreshSucceeds = refreshSucceeds
+            let hints = RewardedHints(consent: consent, isActive: { true })
+            let finished = expectation(description: "Blocked request completes")
+            hints.show(reward: { XCTFail("No reward without an ad") }, completion: { finished.fulfill() })
+            await fulfillment(of: [finished], timeout: 2)
+            XCTAssertFalse(hints.isBusy)
+            XCTAssertNotNil(hints.error)
+            XCTAssertEqual(consent.formCount, refreshSucceeds ? 1 : 0)
+        }
+    }
+
+    @MainActor
+    func testCancelledConsentRefreshCannotPresentFormOrGrantReward() async {
+        let consent = TestAdConsent()
+        consent.suspendRefresh = true
+        let hints = RewardedHints(consent: consent, isActive: { true })
+        var completions = 0
+        hints.show(reward: { XCTFail("Cancelled request cannot earn") }, completion: { completions += 1 })
+        while consent.resumeRefresh == nil { await Task.yield() }
+        hints.cancelLoading()
+        consent.resumeRefresh?.resume(returning: true)
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(completions, 1)
+        XCTAssertEqual(consent.formCount, 0)
+        XCTAssertFalse(hints.isBusy)
+    }
+
     func testCoalescedTouchHistoryPreservesFastCornersAndBacktracking() {
         var trace = BoardTrace()
         let corner = trace.cells(samples: [CGPoint(x: 5, y: 5), CGPoint(x: 35, y: 5), CGPoint(x: 35, y: 35)], width: 40, size: 4)
@@ -1294,4 +1333,20 @@ private final class CountingSessionDefaults: UserDefaults, @unchecked Sendable {
         if defaultName == "hitofude.session.v1" { sessionWrites += 1 }
         super.set(value, forKey: defaultName)
     }
+}
+
+@MainActor
+private final class TestAdConsent: AdConsentProviding {
+    var refreshSucceeds = true
+    var suspendRefresh = false
+    var resumeRefresh: CheckedContinuation<Bool, Never>?
+    var formCount = 0
+    var canRequestAds = false
+    var requiresPrivacyOptions = true
+    func refresh() async -> Bool {
+        if suspendRefresh { return await withCheckedContinuation { resumeRefresh = $0 } }
+        return refreshSucceeds
+    }
+    func presentIfRequired() async throws { formCount += 1 }
+    func presentPrivacyOptions() async throws { formCount += 1 }
 }
