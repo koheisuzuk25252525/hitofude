@@ -756,6 +756,7 @@ private struct BoardView: View {
     @State private var revealedGuideCount = 0
     @State private var glowingGuideIndex: Int?
     @State private var playedGuideCue: UUID?
+    @State private var returnGlow = 0.0
     @Environment(\.hitofudePalette) private var palette
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
@@ -788,7 +789,8 @@ private struct BoardView: View {
                         if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
                     }
                 }
-                .stroke(palette.accent.opacity(0.5), style: StrokeStyle(lineWidth: max(4, step * 0.13), lineCap: .round, lineJoin: .round))
+                .stroke(palette.accent.opacity(0.5 + returnGlow * 0.35), style: StrokeStyle(lineWidth: max(4, step * 0.13), lineCap: .round, lineJoin: .round))
+                .shadow(color: palette.accent.opacity(returnGlow * 0.6), radius: 7)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
@@ -801,6 +803,15 @@ private struct BoardView: View {
                                   onCells: game.trace)
                     .accessibilityHidden(true)
             }
+        }
+        .task(id: game.isReturnCompletion) {
+            returnGlow = 0
+            guard game.isReturnCompletion, !reduceMotion else { return }
+            // One gentle glow; never delay the result or the next-puzzle action.
+            withAnimation(.easeOut(duration: 0.35)) { returnGlow = 1 }
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.8)) { returnGlow = 0 }
         }
         .task(id: "\(game.guideCue)-\(game.isPaused)-\(game.isFinished)") {
             glowingGuideIndex = nil
