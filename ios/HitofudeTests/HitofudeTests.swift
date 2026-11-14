@@ -651,6 +651,35 @@ final class HitofudeTests: XCTestCase {
         XCTAssertNil(reopened.startedAt)
     }
 
+    #if DEBUG
+    @MainActor
+    func testReturnPreviewArgumentWorksWithEitherStartupOrderAndDoesNotRearm() async throws {
+        for activateFirst in [true, false] {
+            let name = "hitofude-return-preview-\(UUID())"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+            defer { defaults.removePersistentDomain(forName: name) }
+            let date = Date(timeIntervalSince1970: 1_000_000)
+            defaults.set(date, forKey: "hitofude.lastVisit")
+            let game = GameModel(defaults: defaults, now: { date },
+                                 launchArguments: ["-hitofude-preview-return"])
+            if activateFirst { game.setActive(true) }
+            await game.startInitialGame()
+            game.setActive(true)
+            XCTAssertEqual(game.returnGreeting?.text, "おかえりなさい")
+            XCTAssertEqual(defaults.integer(forKey: "hitofude.returnCount"), 1)
+            for cell in try XCTUnwrap(game.puzzle).path { game.step(cell) }
+            XCTAssertTrue(game.isReturnCompletion)
+            game.setActive(false)
+            game.setActive(true)
+            await game.load(.easy, seed: 1000)
+            for cell in try XCTUnwrap(game.puzzle).path { game.step(cell) }
+            XCTAssertFalse(game.isReturnCompletion)
+            XCTAssertNil(game.returnGreeting)
+            XCTAssertEqual(defaults.integer(forKey: "hitofude.returnCount"), 1)
+        }
+    }
+    #endif
+
     @MainActor
     func testReturnCelebrationSurvivesRestartAndTutorialAndOnlyCelebratesOnce() async throws {
         let name = "hitofude-return-tests-\(UUID())"

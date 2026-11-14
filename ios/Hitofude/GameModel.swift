@@ -43,6 +43,7 @@ final class GameModel: ObservableObject {
     @Published private(set) var completionMessage: String?
     @Published private(set) var returnGreeting: ReturnGreeting?
     @Published private(set) var isReturnCompletion = false
+    private var simulateReturnOnNextVisit = false
     private var attemptID = UUID().uuidString
     private var pauseReason = "background"
     private let analytics: PlayEventRecording?
@@ -65,6 +66,7 @@ final class GameModel: ObservableObject {
 
     init(defaults: UserDefaults = .standard, now: @escaping () -> Date = Date.init,
          analytics: PlayEventRecording? = nil, sounds: GameSoundPlaying? = nil,
+         launchArguments: [String] = ProcessInfo.processInfo.arguments,
          prepare: @escaping @Sendable (GameMode, Int) throws -> (seed: UInt32, puzzle: Puzzle) = { try PuzzleGenerator.prepared(mode: $0, index: $1) },
          prefetch: @escaping @Sendable (GameMode, UInt32) throws -> Puzzle = { try PuzzleGenerator.generate(mode: $0, seed: $1, timeoutMilliseconds: 1500) },
          generate: @escaping @Sendable (GameMode, UInt32) throws -> Puzzle = { try PuzzleGenerator.generate(mode: $0, seed: $1) }) {
@@ -72,6 +74,9 @@ final class GameModel: ObservableObject {
         self.sounds = sounds
         self.defaults = defaults
         self.now = now
+        #if DEBUG
+        simulateReturnOnNextVisit = launchArguments.contains("-hitofude-preview-return")
+        #endif
         self.generate = generate
         self.prepare = prepare
         self.prefetch = prefetch
@@ -467,8 +472,11 @@ final class GameModel: ObservableObject {
 
     private func registerVisit() {
         let date = now()
-        if let previous = defaults.object(forKey: "hitofude.lastVisit") as? Date,
-           date.timeIntervalSince(previous) >= 72 * 3600 {
+        let previous = defaults.object(forKey: "hitofude.lastVisit") as? Date
+        let returning = previous.map { date.timeIntervalSince($0) >= 72 * 3600 } ?? false
+        if returning || simulateReturnOnNextVisit {
+            // Consume once, whichever startup callback arrives first. Release ignores the argument.
+            simulateReturnOnNextVisit = false
             defaults.set(true, forKey: "hitofude.returnCelebrationPending")
             let count = defaults.integer(forKey: "hitofude.returnCount")
             returnGreeting = ReturnGreeting.allCases[max(0, count) % ReturnGreeting.allCases.count]
