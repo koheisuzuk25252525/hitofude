@@ -142,7 +142,7 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
-    func testCompletionPanelFitsAllActionsWithoutScrollingOnPortraitPhones() {
+    func testCompletionPanelFitsArtworkAndPrimaryActionsOnPortraitPhones() {
         for width in [CGFloat(296), 351, 366, 406] {
             for isChallenge in [false, true] {
                 let panel = CompletionPanel(
@@ -150,13 +150,13 @@ final class HitofudeTests: XCTestCase {
                     verdict: isChallenge ? "あなたの勝ち！" : nil,
                     challengeURL: URL(string: "https://example.com/#c-h-1-754"),
                     challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {},
-                    isReturnCompletion: true
+                    isReturnCompletion: true, completedRoute: Puzzle.tutorial.path, boardSize: 4
                 )
-                // Measure ALL content at its natural height; a clipped/scrolling viewport cannot pass.
+                // Measure the initial content, including artwork and both primary choices.
                 let host = UIHostingController(rootView: panel.fullContent)
                 let size = host.sizeThatFits(in: CGSize(width: width - 32, height: 2000))
                 XCTAssertLessThanOrEqual(size.width, width - 32 + 1)
-                XCTAssertLessThanOrEqual(size.height + 32, 544, "All result actions must fit: width \(width), challenge \(isChallenge)")
+                XCTAssertLessThanOrEqual(size.height + 32, 544, "Artwork and primary actions must fit: width \(width), challenge \(isChallenge)")
                 XCTAssertGreaterThan(size.height, 200)
             }
         }

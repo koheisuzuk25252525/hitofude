@@ -622,7 +622,9 @@ struct GameView: View {
             },
             calendar: { showsProgress = true },
             dismiss: { showsResult = false },
-            isReturnCompletion: game.isReturnCompletion
+            isReturnCompletion: game.isReturnCompletion,
+            completedRoute: game.route,
+            boardSize: game.puzzle?.size ?? game.mode.size
         )
     }
 
@@ -630,6 +632,7 @@ struct GameView: View {
 
 /// A screen overlay, independent of the board's size and any underlying scroll position.
 struct CompletionPanel: View {
+    @State private var sharesExpanded = false
     @Environment(\.hitofudePalette) private var palette
     @AccessibilityFocusState private var titleFocused: Bool
     let summary: String
@@ -643,10 +646,12 @@ struct CompletionPanel: View {
     let calendar: () -> Void
     let dismiss: () -> Void
     var isReturnCompletion = false
+    var completedRoute: [Cell] = []
+    var boardSize = 4
 
     var body: some View {
         ViewThatFits(in: .vertical) {
-            // All actions fit together at standard text sizes on portrait iPhones.
+            // Completion and primary choices fit together at standard text sizes.
             fullContent.fixedSize(horizontal: false, vertical: true)
             // Large accessibility text / landscape retain a reachable next action.
             ScrollView {
@@ -694,7 +699,9 @@ struct CompletionPanel: View {
 
     private var details: some View {
         VStack(spacing: 4) {
-            Text(summary).font(.headline)
+            CompletedRouteArtwork(route: completedRoute, size: boardSize)
+                .frame(width: 176, height: 176)
+                .padding(.vertical, 8)
             if isReturnCompletion {
                 Text("また一筆、つながりました。")
                     .font(.headline).foregroundStyle(palette.accent)
@@ -704,20 +711,28 @@ struct CompletionPanel: View {
                 Text(isReturnCompletion ? message.replacingOccurrences(of: "また一筆、つながりました。\n", with: "") : message)
                     .font(.subheadline)
             }
-            if let verdict { Text(verdict).font(.headline) }
+            if let verdict { Text(verdict).font(.subheadline.bold()) }
+            Text(summary).font(.caption).foregroundStyle(.secondary)
         }.multilineTextAlignment(.center)
     }
 
     private var nextButton: some View {
-        Button(action: next) {
-            Text("もう一問").bold().frame(maxWidth: .infinity, minHeight: 44)
+        VStack(spacing: 4) {
+            Button(action: next) {
+                Text("もう一問").bold().frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("completion-next-puzzle")
+            Button(action: dismiss) {
+                Text("今日はここまで").frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .accessibilityHint("完成した盤面に戻ります。記録は保存されています")
         }
-        .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("completion-next-puzzle")
     }
 
     private var secondaryActions: some View {
-        VStack(spacing: 4) {
+        DisclosureGroup("共有・記録", isExpanded: $sharesExpanded) {
+          VStack(spacing: 4) {
             if verdict != nil {
                 Button(action: retry) {
                     Text("同じ問題で再挑戦").frame(maxWidth: .infinity, minHeight: 44)
@@ -736,6 +751,38 @@ struct CompletionPanel: View {
             Button(action: calendar) {
                 Text("達成カレンダーを見る").frame(maxWidth: .infinity, minHeight: 44)
             }
+          }
+        }.padding(.top, 4)
+    }
+}
+
+/// The player's actual completed route, rather than a generic celebration icon.
+private struct CompletedRouteArtwork: View {
+    @Environment(\.hitofudePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let route: [Cell]
+    let size: Int
+    @State private var visible = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let step = geometry.size.width / CGFloat(max(size, 1))
+            ZStack {
+                RoundedRectangle(cornerRadius: 16).fill(palette.soft)
+                Path { path in
+                    for (index, cell) in route.enumerated() {
+                        let point = CGPoint(x: (CGFloat(cell.column) + 0.5) * step,
+                                            y: (CGFloat(cell.row) + 0.5) * step)
+                        if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                    }
+                }
+                .trim(from: 0, to: visible || reduceMotion ? 1 : 0)
+                .stroke(palette.accent, style: StrokeStyle(lineWidth: max(3, step * 0.16), lineCap: .round, lineJoin: .round))
+            }
+        }
+        .accessibilityLabel("すべてのマスをつないだ、完成した一筆")
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.65)) { visible = true }
         }
     }
 }
