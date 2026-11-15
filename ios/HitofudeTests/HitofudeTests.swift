@@ -132,10 +132,11 @@ final class HitofudeTests: XCTestCase {
         for width in [CGFloat(296), 351, 366, 406] {
             for isChallenge in [false, true] {
                 let panel = CompletionPanel(
-                    summary: "むずかしい  12:34", message: "今月10問達成！「夜空」の色が使えるようになったよ",
+                    summary: "むずかしい  12:34", message: "また一筆、つながりました。\n今月10問達成！「夜空」の色が使えるようになったよ",
                     verdict: isChallenge ? "あなたの勝ち！" : nil,
                     challengeURL: URL(string: "https://example.com/#c-h-1-754"),
-                    challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {}
+                    challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {},
+                    isReturnCompletion: true
                 )
                 // Measure ALL content at its natural height; a clipped/scrolling viewport cannot pass.
                 let host = UIHostingController(rootView: panel.fullContent)
@@ -152,7 +153,7 @@ final class HitofudeTests: XCTestCase {
         let panel = CompletionPanel(
             summary: "ふつう  0:23", message: "自己ベストを更新！", verdict: nil,
             challengeURL: URL(string: "https://example.com/#c-m-1-23"), challengeMessage: "挑戦", shareText: "結果",
-            next: {}, retry: {}, calendar: {}, dismiss: {}
+            next: {}, retry: {}, calendar: {}, dismiss: {}, isReturnCompletion: true
         )
         for typeSize in [DynamicTypeSize.large, .accessibility3] {
             let host = UIHostingController(rootView: panel.environment(\.dynamicTypeSize, typeSize))
@@ -651,6 +652,73 @@ final class HitofudeTests: XCTestCase {
         XCTAssertNil(reopened.startedAt)
     }
 
+    #if DEBUG
+    @MainActor
+    func testReturnPreviewArgumentWorksWithEitherStartupOrderAndDoesNotRearm() async throws {
+        for activateFirst in [true, false] {
+            let name = "hitofude-return-preview-\(UUID())"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+            defer { defaults.removePersistentDomain(forName: name) }
+            let date = Date(timeIntervalSince1970: 1_000_000)
+            defaults.set(date, forKey: "hitofude.lastVisit")
+            let game = GameModel(defaults: defaults, now: { date },
+                                 launchArguments: ["-hitofude-preview-return"])
+            if activateFirst { game.setActive(true) }
+            await game.startInitialGame()
+            game.setActive(true)
+            XCTAssertEqual(game.returnGreeting?.text, "おかえりなさい")
+            XCTAssertEqual(defaults.integer(forKey: "hitofude.returnCount"), 1)
+            for cell in try XCTUnwrap(game.puzzle).path { game.step(cell) }
+            XCTAssertTrue(game.isReturnCompletion)
+            game.setActive(false)
+            game.setActive(true)
+            await game.load(.easy, seed: 1000)
+            for cell in try XCTUnwrap(game.puzzle).path { game.step(cell) }
+            XCTAssertFalse(game.isReturnCompletion)
+            XCTAssertNil(game.returnGreeting)
+            XCTAssertEqual(defaults.integer(forKey: "hitofude.returnCount"), 1)
+        }
+    }
+    #endif
+
+    @MainActor
+    func testReturnCelebrationSurvivesRestartAndTutorialAndOnlyCelebratesOnce() async throws {
+        let name = "hitofude-return-tests-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let date = Date(timeIntervalSince1970: 1_000_000)
+        defaults.set(date.addingTimeInterval(-72 * 3600), forKey: "hitofude.lastVisit")
+        let first = GameModel(defaults: defaults, now: { date })
+        await first.startInitialGame()
+        XCTAssertEqual(first.returnGreeting?.text, "おかえりなさい")
+        first.step(try XCTUnwrap(first.puzzle).path[0])
+        first.setActive(false)
+
+        let sound = TestGameSounds()
+        let reopened = GameModel(defaults: defaults, now: { date }, sounds: sound)
+        await reopened.startInitialGame()
+        XCTAssertEqual(reopened.route.count, 1)
+        await reopened.load(.tutorial)
+        for cell in Puzzle.tutorial.path { reopened.step(cell) }
+        XCTAssertFalse(reopened.isReturnCompletion)
+
+        await reopened.load(.easy, seed: 1000)
+        reopened.reset() // Restarting a puzzle must keep the welcome pending.
+        let puzzle = try XCTUnwrap(reopened.puzzle)
+        for cell in puzzle.path { reopened.step(cell) }
+        XCTAssertTrue(reopened.isReturnCompletion)
+        XCTAssertTrue(try XCTUnwrap(reopened.completionMessage).hasPrefix("また一筆、つながりました。"))
+        XCTAssertNotNil(reopened.best)
+        XCTAssertEqual(sound.events.filter { $0 == .clear }.count, 2) // No additional welcome sound.
+
+        let next = GameModel(defaults: defaults, now: { date })
+        await next.startInitialGame()
+        for cell in try XCTUnwrap(next.puzzle).path { next.step(cell) }
+        XCTAssertTrue(next.isFinished)
+        XCTAssertFalse(next.isReturnCompletion)
+        XCTAssertFalse(try XCTUnwrap(next.completionMessage).contains("また一筆"))
+    }
+
     @MainActor
     func testReturnGreetingThresholdAndForegroundVisit() async throws {
         let name = "hitofude-tests-\(UUID())"
@@ -663,6 +731,7 @@ final class HitofudeTests: XCTestCase {
         await game.startInitialGame()
         game.setActive(true)
         XCTAssertNil(game.returnGreeting)
+        XCTAssertFalse(defaults.bool(forKey: "hitofude.returnCelebrationPending"))
         let puzzle = try XCTUnwrap(game.puzzle)
         game.step(puzzle.path[0])
         game.setActive(false)

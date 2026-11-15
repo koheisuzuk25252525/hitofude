@@ -545,7 +545,8 @@ struct GameView: View {
                 Task { await game.load(game.mode, seed: game.seed, rival: game.rival) }
             },
             calendar: { showsProgress = true },
-            dismiss: { showsResult = false }
+            dismiss: { showsResult = false },
+            isReturnCompletion: game.isReturnCompletion
         )
     }
 
@@ -565,6 +566,7 @@ struct CompletionPanel: View {
     let retry: () -> Void
     let calendar: () -> Void
     let dismiss: () -> Void
+    var isReturnCompletion = false
 
     var body: some View {
         ViewThatFits(in: .vertical) {
@@ -580,6 +582,12 @@ struct CompletionPanel: View {
         }
         .padding(16)
         .frame(maxWidth: 440)
+        .background {
+            if isReturnCompletion {
+                ReturnCelebrationArtwork()
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+            }
+        }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
         .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(palette.foreground.opacity(0.18)))
         .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
@@ -595,7 +603,7 @@ struct CompletionPanel: View {
 
     private var heading: some View {
         HStack(spacing: 4) {
-            Text("ひと筆、完成！").font(.title2.bold())
+            Text(isReturnCompletion ? "おかえりなさい！" : "ひと筆、完成！").font(.title2.bold())
                 .foregroundStyle(palette.accent)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($titleFocused)
@@ -611,7 +619,15 @@ struct CompletionPanel: View {
     private var details: some View {
         VStack(spacing: 4) {
             Text(summary).font(.headline)
-            if let message { Text(message).font(.subheadline) }
+            if isReturnCompletion {
+                Text("また一筆、つながりました。")
+                    .font(.headline).foregroundStyle(palette.accent)
+            }
+            if let message {
+                // Keep milestone/best-time feedback without repeating the welcome phrase.
+                Text(isReturnCompletion ? message.replacingOccurrences(of: "また一筆、つながりました。\n", with: "") : message)
+                    .font(.subheadline)
+            }
             if let verdict { Text(verdict).font(.headline) }
         }.multilineTextAlignment(.center)
     }
@@ -644,6 +660,65 @@ struct CompletionPanel: View {
             Button(action: calendar) {
                 Text("達成カレンダーを見る").frame(maxWidth: .infinity, minHeight: 44)
             }
+        }
+    }
+}
+
+// Decoration stays behind the result, never captures taps or delays its actions.
+private struct ReturnCelebrationArtwork: View {
+    @Environment(\.hitofudePalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var strokeEnd: CGFloat = 0
+    @State private var starsVisible = false
+    @State private var played = false
+    private let stars: [CGPoint] = [
+        CGPoint(x: 0.06, y: 0.28), CGPoint(x: 0.12, y: 0.12),
+        CGPoint(x: 0.39, y: 0.035), CGPoint(x: 0.70, y: 0.045),
+        CGPoint(x: 0.94, y: 0.14), CGPoint(x: 0.91, y: 0.32),
+        CGPoint(x: 0.04, y: 0.62), CGPoint(x: 0.96, y: 0.76)
+    ]
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = geometry.size
+            let settled = reduceMotion || scenePhase != .active
+            ZStack {
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(palette.accent.opacity(0.08))
+                Path { path in
+                    path.move(to: CGPoint(x: -10, y: size.height * 0.45))
+                    path.addQuadCurve(to: CGPoint(x: size.width + 10, y: size.height * 0.22),
+                                      control: CGPoint(x: size.width * 0.35, y: -size.height * 0.12))
+                }
+                .trim(from: 0, to: settled ? 1 : strokeEnd)
+                .stroke(palette.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .shadow(color: palette.accent.opacity(0.6), radius: 8)
+                .opacity(settled || starsVisible ? 0.10 : 0.65)
+                ForEach(stars.indices, id: \.self) { index in
+                    Image(systemName: "sparkle")
+                        .font(.system(size: index.isMultiple(of: 3) ? 24 : 15, weight: .medium))
+                        .foregroundStyle(palette.accent)
+                        .scaleEffect(settled || starsVisible ? 1 : 0.35)
+                        .opacity(settled || starsVisible ? 0.5 : 0)
+                        .position(x: size.width * stars[index].x, y: size.height * stars[index].y)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task(id: "\(reduceMotion)-\(scenePhase)") {
+            guard !reduceMotion, scenePhase == .active else { return }
+            if played {
+                strokeEnd = 1
+                starsVisible = true
+                return
+            }
+            played = true
+            withAnimation(.easeOut(duration: 0.7)) { strokeEnd = 1 }
+            do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.35)) { starsVisible = true }
         }
     }
 }

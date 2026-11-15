@@ -255,11 +255,5 @@ enum ReturnGreeting: String, CaseIterable {
         case .moon: return "moon.stars.fill"
         }
     }
-    var text: String {
-        switch self {
-        case .star: return "おかえり。小さな星がお出迎え。"
-        case .leaf: return "おかえり。ひと息つける場所、空いています。"
-        case .moon: return "おかえり。少しだけ、静かな時間を。"
-        }
-    }
+    var text: String { "おかえりなさい" }
 }
