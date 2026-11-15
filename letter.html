@@ -29,6 +29,9 @@
 <input id="message" required placeholder="いつもありがとう" aria-describedby="messageHelp" autocomplete="off">
 <div class="fieldHelp"><span id="messageHelp">文字数に合わせて盤面が大きくなります。</span><output id="counter" for="message">0文字</output></div>
 <details class="ideas"><summary>言葉に迷ったら</summary><div class="examples"><button type="button" data-example="おつかれさま">おつかれさま</button><button type="button" data-example="いつもありがとう">ありがとう</button><button type="button" data-example="お誕生日おめでとう">おめでとう</button></div></details>
+<label for="difficulty">パズルの難易度</label>
+<select id="difficulty" aria-describedby="difficultyHelp"><option value="easy">やさしい</option><option value="normal" selected>ふつう</option><option value="hard">むずかしい</option></select>
+<p id="difficultyHelp" class="fieldHelp">やさしい：手がかり多め。ふつう：道順を考える。むずかしい：大きな盤面でじっくり。</p>
 <label for="sender">あなたの名前 <span class="muted">（任意）</span></label><input id="sender" autocomplete="off" maxlength="40" placeholder="呼ばれている名前で" aria-describedby="senderHelp"><small id="senderHelp">20文字まで。名前は開く前から相手に見えます。</small>
 <p class="privacyNote">手紙は共有リンクに含まれます。リンクを知っている人は読めるので、秘密の情報は書かないでください。送信後の変更・取り消しはできません。</p>
 <button type="button" class="secondary wide" id="preview">受け取り方を試す</button><button type="submit" class="primary wide">この一通を送る <span aria-hidden="true">↗</span></button>
@@ -37,9 +40,10 @@
 <section id="shareFallback" class="paper" hidden aria-label="共有リンク"><label for="shareURL">このリンクを相手に送ってください</label><textarea id="shareURL" rows="3" readonly></textarea><button id="copyLink" class="primary wide">リンクをコピー</button><p class="fine">共有時のプレビューには、本文を表示しません。</p></section>
 </section>
 <section id="receive" hidden aria-labelledby="receiveTitle">
-<div id="previewBar" class="previewBar" hidden><span>受け取り方のプレビュー</span><button id="backToEdit" class="textButton">編集に戻る</button></div>
+<div id="previewBar" class="previewBar" hidden><span>受け取り方のプレビュー</span><button id="newPuzzle" class="textButton">別の問題を試す</button><button id="backToEdit" class="textButton">編集に戻る</button></div>
 <div class="intro" id="receiveIntro"><span class="eyebrow" id="fromLabel"></span><h1 id="receiveTitle">あなたへ、<br>一筆の手紙。</h1><p>ひと筆、つないで開けてみて。</p></div>
 <div id="play" class="paper">
+<p id="difficultyLabel" class="fine"></p>
 <div class="seal" aria-hidden="true">✉</div>
 <p class="instruction">「私」から「あなた」へ、すべてのマスを一度ずつ。<br>数字は、そのマスを<strong>何番目に通るか</strong>です。</p>
 <p class="fine">上下左右につなげます。順にタップしても遊べます。</p>

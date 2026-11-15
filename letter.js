@@ -7,11 +7,15 @@ function validLetter(value) {
     value.text.trim().length > 0 && value.text.length <= 6000 && (value.v === 2 || letterCharacters(value.text).length <= 9) && !/[\r\n]/.test(value.text) &&
     typeof value.from === 'string' && [...value.from].length <= 20 &&
     !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.text + value.from) &&
-    !/[\r\n]/.test(value.from) && Number.isInteger(value.puzzle) && value.puzzle >= 0 && value.puzzle < 4;
+    !/[\r\n]/.test(value.from) && Number.isInteger(value.puzzle) && value.puzzle >= 0 && value.puzzle < 4 &&
+    (value.difficulty === undefined ? value.seed === undefined : value.v === 2 && ['easy','normal','hard'].includes(value.difficulty) && Number.isInteger(value.seed) && value.seed >= 0 && value.seed <= 4294967295);
+}
+function letterPayload(value) {
+  return {v:value.v,text:value.text,from:value.from,puzzle:value.puzzle,...(value.difficulty===undefined?{}:{difficulty:value.difficulty,seed:value.seed})};
 }
 function encodeLetter(value) {
   if (!validLetter(value)) throw Error('invalid letter');
-  const bytes = new TextEncoder().encode(JSON.stringify({v:value.v,text:value.text,from:value.from,puzzle:value.puzzle}));
+  const bytes = new TextEncoder().encode(JSON.stringify(letterPayload(value)));
   const hash = '#letter=' + btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
   if(hash.length>8192)throw Error('letter too long');
   return hash;
@@ -21,10 +25,11 @@ function decodeLetter(hash) {
   try {
     const raw = hash.slice(8).replaceAll('-','+').replaceAll('_','/');
     const value = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(atob(raw), c=>c.charCodeAt(0))));
-    return validLetter(value) ? {v:value.v,text:value.text,from:value.from,puzzle:value.puzzle} : null;
+    return validLetter(value) ? letterPayload(value) : null;
   } catch { return null; }
 }
-function letterBoard(rotation, count = 9, version = 1) {
+function letterBoard(rotation, count = 9, version = 1, difficulty, seed) {
+  if(version===2 && difficulty!==undefined)return difficultyBoard(count,difficulty,seed);
   if(version === 2)return adaptiveBoard(rotation,count);
   const transform = index => {
     let r = Math.floor(index / 4), c = index % 4;
@@ -74,18 +79,107 @@ function letterSolutionCount(rows,cols,clues) {
   }
   walk(byStep.get(1),1);return solutions;
 }
+// Difficulty letters carry a seed; legacy v1/v2 letters retain their original boards.
+function letterRandom(seed) {
+  return () => { seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296; };
+}
+function letterShuffle(items,rnd) {
+  for(let i=items.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[items[i],items[j]]=[items[j],items[i]];}
+  return items;
+}
+function letterNeighbors(cell,rows,cols) {
+  return [cell-cols,cell+1,cell+cols,cell-1].filter(n=>n>=0 && n<rows*cols && adjacent(cell,n,cols));
+}
+function wovenPath(rows,cols,rnd,fixedEndpoints=false) {
+  if(!fixedEndpoints){
+    let path=Array.from({length:rows*cols},(_,i)=>{const r=Math.floor(i/cols),c=i%cols;return r*cols+(r%2?cols-1-c:c);});
+    for(let turn=0;turn<path.length*path.length*4;turn++){
+      if(rnd()<0.5)path.reverse();
+      const candidates=letterNeighbors(path.at(-1),rows,cols).filter(cell=>cell!==path.at(-2));
+      const cell=candidates[Math.floor(rnd()*candidates.length)],index=path.indexOf(cell);
+      if(index>=0)path=path.slice(0,index+1).concat(path.slice(index+1).reverse());
+    }
+    return path;
+  }
+  const total=rows*cols, end=(rows-1)*cols, visited=new Uint8Array(total),path=[0];
+  const neighbors=Array.from({length:total},(_,i)=>letterNeighbors(i,rows,cols));
+  let budget=40000;visited[0]=1;
+  function walk(cell){
+    if(--budget<0)return false;
+    if(path.length===total)return cell===end;
+    const candidates=letterShuffle(neighbors[cell].filter(n=>!visited[n] && (n!==end || path.length===total-1)),rnd);
+    // Prefer constrained cells; random ties produce winding, reproducible paths.
+    candidates.sort((a,b)=>neighbors[a].filter(n=>!visited[n]).length-neighbors[b].filter(n=>!visited[n]).length);
+    for(const n of candidates){
+      visited[n]=1;path.push(n);
+      if(walk(n))return true;
+      path.pop();visited[n]=0;
+      if(budget<0)break;
+    }
+    return false;
+  }
+  if(walk(0))return path;
+  // Bounded deterministic fallback, subsequently checked by the same clue solver.
+  return Array.from({length:total},(_,i)=>{const r=Math.floor(i/cols),c=i%cols;return r*cols+(r%2?cols-1-c:c);});
+}
+function wovenSolutionCount(rows,cols,clues,budget=12000) {
+  const total=rows*cols, neighbors=Array.from({length:total},(_,i)=>letterNeighbors(i,rows,cols));
+  const byStep=new Map([...clues].map(([cell,n])=>[n,cell])),steps=[...byStep.keys()].sort((a,b)=>a-b);
+  const visited=new Uint8Array(total),end=byStep.get(total);let found=0;
+  function walk(cell,n){
+    if(--budget<0){found=2;return;}
+    if(n===total){found++;return;}
+    const next=steps.find(k=>k>n),target=byStep.get(next);
+    const d=Math.abs(Math.floor(cell/cols)-Math.floor(target/cols))+Math.abs(cell%cols-target%cols);
+    if(d>next-n || (next-n-d)%2)return;
+    for(let i=0;i<total;i++)if(!visited[i]){
+      const degree=neighbors[i].filter(j=>!visited[j] || j===cell).length;
+      if(degree===0 || (degree===1 && i!==end))return;
+    }
+    for(const neighbor of neighbors[cell]){
+      if(found>=2)break;
+      if(visited[neighbor] || (clues.has(neighbor) && clues.get(neighbor)!==n+1))continue;
+      visited[neighbor]=1;walk(neighbor,n+1);visited[neighbor]=0;
+    }
+  }
+  visited[byStep.get(1)]=1;walk(byStep.get(1),1);return found;
+}
+function difficultyBoard(count,difficulty,seed) {
+  const cols=difficulty==='easy'?4:5, panelRows={easy:4,normal:6,hard:8}[difficulty];
+  const capacity=cols*panelRows, panels=Math.ceil((count+2)/capacity),rnd=letterRandom(seed);
+  const path=[],clues=new Map();
+  for(let panel=0;panel<panels;panel++){
+    const local=wovenPath(panelRows,cols,rnd,panels>1), localClues=new Map(local.map((cell,i)=>[cell,i+1]));
+    // Numbered boundary rows separate long letters into independently unique sections.
+    const protectedCell=cell=>cell===local[0] || cell===local.at(-1) || (panels>1 && (cell<cols || cell>=capacity-cols));
+    for(const cell of letterShuffle(local.filter(cell=>!protectedCell(cell)),rnd)){
+      const n=localClues.get(cell);localClues.delete(cell);
+      if(wovenSolutionCount(panelRows,cols,localClues)!==1)localClues.set(cell,n);
+    }
+    const extra={easy:Math.ceil(capacity/4),normal:Math.ceil(capacity/12),hard:0}[difficulty];
+    for(const cell of letterShuffle(local.filter(cell=>!localClues.has(cell)),rnd).slice(0,extra))localClues.set(cell,local.indexOf(cell)+1);
+    const offset=panel*capacity;
+    path.push(...local.map(cell=>cell+offset));
+    for(const [cell,n] of localClues)clues.set(cell+offset,n+offset);
+  }
+  return {rows:panelRows*panels,cols,path,clues};
+}
+
 // ---------- interface ----------
 const $ = id => document.getElementById(id);
 let letter = null, board = null, route = [], opened = false, previewing = false;
 let pointer = null, previousPoint = null, revealTimer = null;
 const random = new Uint32Array(1); crypto.getRandomValues(random);
 const draftPuzzle = random[0] % 4;
+let draftSeed = random[0];
+const difficultyNames={easy:"やさしい",normal:"ふつう",hard:"むずかしい"};
+function draftValue(){return {v:2,text:$("message").value.trim(),from:$("sender").value.trim(),puzzle:draftPuzzle,difficulty:$("difficulty").value,seed:draftSeed};}
 const status = text => { $('status').textContent = text; };
 function updateForm() {
   const count = letterCharacters($('message').value).length;
   $('counter').textContent = `${count}文字`;
   $('message').setCustomValidity(!$('message').value.trim() ? '届けたい言葉を書いてください。' : '');
-  if($('message').value.trim()){try{encodeLetter({v:2,text:$('message').value.trim(),from:$('sender').value.trim(),puzzle:draftPuzzle});}catch{$('message').setCustomValidity('共有リンクに収まるよう、言葉を少し短くしてください。');}}
+  if($('message').value.trim()){try{encodeLetter(draftValue());}catch{$('message').setCustomValidity('共有リンクに収まるよう、言葉を少し短くしてください。');}}
   $('sender').setCustomValidity([...$('sender').value].length > 20 ? '名前は20文字以内で書いてください。' : '');
   $('shareFallback').hidden = true;
   $('shareURL').value = '';
@@ -94,7 +188,7 @@ function updateForm() {
 function draft() {
   updateForm();
   if (!$('letterForm').reportValidity()) return null;
-  const value = {v:2,text:$('message').value.trim(),from:$('sender').value.trim(),puzzle:draftPuzzle};
+  const value = draftValue();
   if (!validLetter(value)) { status('入力した文字を確認してください。'); return null; }
   return value;
 }
@@ -109,14 +203,16 @@ function showComposer() {
 }
 function showLetter(value, preview = false) {
   clearTimeout(revealTimer); $('play').classList.remove('delivered');
-  letter = value; board = letterBoard(value.puzzle,letterCharacters(value.text).length,value.v); route = []; opened = false; previewing = preview;
+  letter = value; board = letterBoard(value.puzzle,letterCharacters(value.text).length,value.v,value.difficulty,value.seed); route = []; opened = false; previewing = preview;
   pointer = null; previousPoint = null;
   $('compose').hidden = true; $('receive').hidden = false; $('invalid').hidden = true;
   $('receiveIntro').hidden = false; $('previewBar').hidden = !preview; $('play').hidden = false; $('opened').hidden = true;
   $('letterBody').textContent = ''; $('signature').textContent = '';
+  $('difficultyLabel').textContent=value.difficulty?`難易度：${difficultyNames[value.difficulty]}`:'';
   $('fromLabel').textContent = value.from ? `${value.from}さんから` : '言葉を包んだ、小さな贈りもの';
   $('board').replaceChildren();
   $('board').style.gridTemplateColumns=`repeat(${board.cols},1fr)`;
+  $('board').style.gridTemplateRows=`repeat(${board.rows},1fr)`;
   $('board').style.aspectRatio=`${board.cols} / ${board.rows}`;
   $('board').setAttribute('aria-label',`${board.rows}かける${board.cols}の一筆パズル`);
   document.querySelector('svg.route').setAttribute('viewBox',`0 0 ${board.cols*100} ${board.rows*100}`);
@@ -234,6 +330,8 @@ for (const button of document.querySelectorAll('[data-example]')) button.onclick
   if ($('message').value.trim() && !confirm('今の言葉を、この例文に置き換えますか？')) return;
   $('message').value=button.dataset.example.replaceAll('\\n','\n'); updateForm(); $('message').focus();
 };
+$('difficulty').addEventListener('change',updateForm);
+$('newPuzzle').onclick=()=>{const seed=new Uint32Array(1);crypto.getRandomValues(seed);draftSeed=seed[0];const value=draft();if(value)showLetter(value,true);};
 $('preview').onclick=()=>{const value=draft();if(value)showLetter(value,true);};
 $('letterForm').onsubmit=async event=>{
   event.preventDefault(); const value=draft(); if(!value)return;
