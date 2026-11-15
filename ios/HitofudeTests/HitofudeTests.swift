@@ -135,7 +135,8 @@ final class HitofudeTests: XCTestCase {
                     summary: "むずかしい  12:34", message: "また一筆、つながりました。\n今月10問達成！「夜空」の色が使えるようになったよ",
                     verdict: isChallenge ? "あなたの勝ち！" : nil,
                     challengeURL: URL(string: "https://example.com/#c-h-1-754"),
-                    challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {}
+                    challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {},
+                    isReturnCompletion: true
                 )
                 // Measure ALL content at its natural height; a clipped/scrolling viewport cannot pass.
                 let host = UIHostingController(rootView: panel.fullContent)
@@ -152,7 +153,7 @@ final class HitofudeTests: XCTestCase {
         let panel = CompletionPanel(
             summary: "ふつう  0:23", message: "自己ベストを更新！", verdict: nil,
             challengeURL: URL(string: "https://example.com/#c-m-1-23"), challengeMessage: "挑戦", shareText: "結果",
-            next: {}, retry: {}, calendar: {}, dismiss: {}
+            next: {}, retry: {}, calendar: {}, dismiss: {}, isReturnCompletion: true
         )
         for typeSize in [DynamicTypeSize.large, .accessibility3] {
             let host = UIHostingController(rootView: panel.environment(\.dynamicTypeSize, typeSize))
