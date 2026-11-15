@@ -227,22 +227,22 @@ function redraw(note) {
   const positions=new Map(route.map((cell,index)=>[cell,index+1]));
   for (let i = 0; i < board.path.length; i++) {
     const cell = $('board').children[i], order = positions.get(i) || 0, clue = board.clues.get(i);
-    const endpoint = clue === 1 ? '送り手' : clue === board.path.length ? '受け手' : '';
-    cell.textContent = endpoint || clue || (order > 0 ? order : '');
+    const endpoint = clue === 1 || clue === board.path.length;
+    cell.textContent = clue || (order > 0 ? order : '');
     cell.classList.toggle('endpoint',!!endpoint);
     cell.classList.toggle('visited',order > 0); cell.classList.remove('tip');
-    cell.setAttribute('aria-label',`${Math.floor(i/board.cols)+1}行${i%board.cols+1}列、${endpoint ? endpoint+'、'+clue+'番目に通るマス' : clue ? clue+'番目に通るマス' : '空白'}${order ? '、通過済み'+order+'番目' : ''}`);
+    cell.setAttribute('aria-label',`${Math.floor(i/board.cols)+1}行${i%board.cols+1}列、${clue ? clue+'番目に通るマス' : '空白'}${order ? '、通過済み'+order+'番目' : ''}`);
   }
   $('thread').setAttribute('points',route.map(i=>`${i%board.cols*100+50},${Math.floor(i/board.cols)*100+50}`).join(' '));
   $('undo').disabled = !route.length; $('reset').disabled = !route.length;
   const next = [...board.clues.values()].filter(n=>n>route.length).sort((a,b)=>a-b)[0];
-  $('guidance').textContent = note || (route.length ? `${route.length} / ${board.path.length}マス。次の「${next===board.path.length?'受け手':next}」まで、あと${next-route.length}マス。` : '「送り手」から「受け手」へ、ひと筆。');
+  $('guidance').textContent = note || (route.length ? `${route.length} / ${board.path.length}マス。次の「${next}」まで、あと${next-route.length}マス。` : '「1」から、すべてのマスを一度ずつ。');
 }
 function takeStep(cell) {
   if (!letter || opened || $('receive').hidden || !Number.isInteger(cell) || cell < 0 || cell >= board.path.length) return;
   if (route.at(-1) === cell) return;
   if (route.length > 1 && route.at(-2) === cell) { route.pop(); redraw(); return; }
-  if (!route.length && board.clues.get(cell) !== 1) { redraw('「送り手」のマスからはじめてみて。'); return; }
+  if (!route.length && board.clues.get(cell) !== 1) { redraw('「1」のマスからはじめてみて。'); return; }
   if (route.length && (!adjacent(route.at(-1),cell,board.cols) || route.includes(cell))) return;
   const clue = board.clues.get(cell);
   if (clue && clue !== route.length+1) { redraw(`「${clue}」のマスは、${clue}番目に通ります。`); return; }
@@ -258,7 +258,7 @@ function reveal(skipped) {
   $('opened').hidden = true;
   $('opened').classList.toggle('animated',!skipped);
   $('unsealedThread').setAttribute('hidden','');
-  $('openCaption').textContent = skipped ? '手紙を開きました' : '送り手から、受け手へ。';
+  $('openCaption').textContent = skipped ? '手紙を開きました' : 'ひと筆、気持ちがつながりました。';
   $('letterBody').textContent = letter.text;
   $('signature').textContent = letter.from ? `${letter.from}より` : '';
   $('createOwn').textContent = previewing ? '編集に戻って、この一通を送る' : '自分も一通つくる';
@@ -269,7 +269,7 @@ function reveal(skipped) {
     for (let step=0;step<route.length;step++) {
       const cell=$('board').children[route[step]];
       cell.disabled=true;cell.replaceChildren();
-      const text=step===0?'送り手':step===route.length-1?'受け手':characters[step-(route.length-1-characters.length)] || '';
+      const text=step===0?'1':step===route.length-1?String(route.length):characters[step-(route.length-1-characters.length)] || '';
       cell.setAttribute('aria-label',text || '線でつながるマス');
       const span=document.createElement('span'); span.textContent=text;
       if(step>=route.length-1-characters.length && step<route.length-1) {
