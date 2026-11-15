@@ -161,11 +161,33 @@ try {
     check(length+' characters all reach recipient',await evaluate(`[$('letterBody').textContent.length,route.map(i=>$('board').children[i].textContent).filter(Boolean).join(''),$('board').children[route.at(-2)].textContent]`),[length,'私'+'あ'.repeat(length)+'あなた','あ']);
     check(length+' character board fits phone width',await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
   }
+  await evaluate(`history.replaceState(null,'','letter.html');showComposer();$('message').value='いつもありがとう';$('sender').value='友だち'`);
+  check('normal is the default difficulty',await evaluate(`$('difficulty').value`),'normal');
+  for(const [difficulty,size,label] of [['easy',16,'やさしい'],['normal',30,'ふつう'],['hard',40,'むずかしい']]){
+    await evaluate(`showComposer();$('difficulty').value='${difficulty}';$('preview').click()`);
+    check(difficulty+' preview size and label',await evaluate(`[board.path.length,$('difficultyLabel').textContent]`),[size,'難易度：'+label]);
+    const previewPath=await evaluate(`board.path.join(',')`);
+    await evaluate(`$('backToEdit').click();$('letterForm').requestSubmit()`);
+    const sharedHash=await evaluate(`new URL($('shareURL').value).hash`);
+    await cdp('Page.navigate',{url:url+'letter.html'+sharedHash});
+    await waitFor(`typeof letter!=='undefined' && !!letter`);
+    check(difficulty+' recipient gets exact preview board',await evaluate(`board.path.join(',')`),previewPath);
+    check(difficulty+' app link preserves chosen difficulty',await evaluate(`decodeLetter(new URL($('openApp').href).hash).difficulty`),difficulty);
+    await cdp('Emulation.setDeviceMetricsOverride',{width:320,height:844,deviceScaleFactor:1,mobile:true});
+    check(difficulty+' cells have equal heights',await evaluate(`(()=>{const heights=[...$('board').children].map(c=>c.getBoundingClientRect().height);return Math.max(...heights)-Math.min(...heights)<1})()`),true);
+    check(difficulty+' fits narrow phone',await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
+    await evaluate(`for(const i of board.path)takeStep(i)`);
+    await waitFor(`!$('opened').hidden`);
+    check(difficulty+' reveals the complete message',await evaluate(`route.map(i=>$('board').children[i].textContent).filter(Boolean).join('')`),'私いつもありがとうあなた');
+    await evaluate(`history.replaceState(null,'','letter.html');showComposer();$('message').value='いつもありがとう';$('sender').value='友だち';Object.defineProperty(navigator,'share',{configurable:true,value:undefined})`);
+  }
+  await evaluate(`$('preview').click();globalThis.oldSeed=letter.seed;$('newPuzzle').click()`);
+  check('another preview preserves words and changes seed',await evaluate(`[letter.seed!==oldSeed,letter.text]`),[true,'いつもありがとう']);
   await evaluate(`history.replaceState(null,'','letter.html');showComposer()`);
   if(process.env.UI_SCREENSHOT_DIR){
     await mkdir(process.env.UI_SCREENSHOT_DIR,{recursive:true});
     for(const screen of ['compose','sealed','opened']){
-      if(screen==='sealed')await evaluate(`showLetter({v:1,text:'いつもありがとう',from:'こうへい',puzzle:0})`);
+      if(screen==='sealed')await evaluate(`showLetter({v:2,text:'いつもありがとう',from:'こうへい',puzzle:0,difficulty:'hard',seed:42})`);
       if(screen==='opened'){await evaluate(`for(const i of board.path)takeStep(i)`);await waitFor(`!$('opened').hidden`);}
       await evaluate(`Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})))`);
       const shot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
