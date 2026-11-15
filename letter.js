@@ -1,8 +1,10 @@
 'use strict';
 // ---------- letter data (no storage or network) ----------
+const letterSegmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('ja', {granularity:'grapheme'}) : null;
+function letterCharacters(text) { return letterSegmenter ? [...letterSegmenter.segment(text)].map(part=>part.segment) : [...text]; }
 function validLetter(value) {
   return !!value && value.v === 1 && typeof value.text === 'string' &&
-    value.text.trim().length > 0 && [...value.text].length <= 120 &&
+    value.text.trim().length > 0 && value.text.length <= 180 && letterCharacters(value.text).length <= 9 && !/[\r\n]/.test(value.text) &&
     typeof value.from === 'string' && [...value.from].length <= 20 &&
     !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.text + value.from) &&
     !/[\r\n]/.test(value.from) && Number.isInteger(value.puzzle) && value.puzzle >= 0 && value.puzzle < 4;
@@ -34,14 +36,14 @@ function adjacent(a,b) { return Math.abs(Math.floor(a/4)-Math.floor(b/4))+Math.a
 // ---------- interface ----------
 const $ = id => document.getElementById(id);
 let letter = null, board = null, route = [], opened = false, previewing = false;
-let pointer = null, previousPoint = null;
+let pointer = null, previousPoint = null, revealTimer = null;
 const random = new Uint32Array(1); crypto.getRandomValues(random);
 const draftPuzzle = random[0] % 4;
 const status = text => { $('status').textContent = text; };
 function updateForm() {
-  const count = [...$('message').value].length;
-  $('counter').textContent = `${count} / 120文字`;
-  $('message').setCustomValidity(count > 120 ? '120文字以内で書いてください。' : !$('message').value.trim() ? '届けたい言葉を書いてください。' : '');
+  const count = letterCharacters($('message').value).length;
+  $('counter').textContent = `${count} / 9文字`;
+  $('message').setCustomValidity(count > 9 ? '9文字以内で書いてください。' : !$('message').value.trim() ? '届けたい言葉を書いてください。' : '');
   $('sender').setCustomValidity([...$('sender').value].length > 20 ? '名前は20文字以内で書いてください。' : '');
   $('shareFallback').hidden = true;
   $('shareURL').value = '';
@@ -56,12 +58,14 @@ function draft() {
 }
 function focusTitle(id) { $(id).setAttribute('tabindex','-1'); $(id).focus({preventScroll:true}); }
 function showComposer() {
+  clearTimeout(revealTimer);
   $('compose').hidden = false; $('receive').hidden = true; $('invalid').hidden = true;
   $('letterBody').textContent = ''; $('signature').textContent = '';
   letter = null; opened = false; pointer = null; previousPoint = null;
   status(''); window.scrollTo(0,0); focusTitle('composeTitle');
 }
 function showLetter(value, preview = false) {
+  clearTimeout(revealTimer); $('play').classList.remove('delivered');
   letter = value; board = letterBoard(value.puzzle); route = []; opened = false; previewing = preview;
   pointer = null; previousPoint = null;
   $('compose').hidden = true; $('receive').hidden = false; $('invalid').hidden = true;
@@ -79,20 +83,22 @@ function showLetter(value, preview = false) {
 function redraw(note) {
   for (let i = 0; i < 16; i++) {
     const cell = $('board').children[i], order = route.indexOf(i)+1, clue = board.clues.get(i);
-    cell.textContent = clue || (order > 0 ? order : '');
+    const endpoint = clue === 1 ? '私' : clue === 16 ? 'あなた' : '';
+    cell.textContent = endpoint || clue || (order > 0 ? order : '');
+    cell.classList.toggle('endpoint',!!endpoint);
     cell.classList.toggle('visited',order > 0); cell.classList.remove('tip');
-    cell.setAttribute('aria-label',`${Math.floor(i/4)+1}行${i%4+1}列、${clue ? clue+'番目に通るマス' : '空白'}${order ? '、通過済み'+order+'番目' : ''}`);
+    cell.setAttribute('aria-label',`${Math.floor(i/4)+1}行${i%4+1}列、${endpoint ? endpoint+'、'+clue+'番目に通るマス' : clue ? clue+'番目に通るマス' : '空白'}${order ? '、通過済み'+order+'番目' : ''}`);
   }
   $('thread').setAttribute('points',route.map(i=>`${i%4*100+50},${Math.floor(i/4)*100+50}`).join(' '));
   $('undo').disabled = !route.length; $('reset').disabled = !route.length;
   const next = [...board.clues.values()].filter(n=>n>route.length).sort((a,b)=>a-b)[0];
-  $('guidance').textContent = note || (route.length ? `${route.length} / 16マス。次の「${next}」まで、あと${next-route.length}マス。` : '「1」から、ひと筆。');
+  $('guidance').textContent = note || (route.length ? `${route.length} / 16マス。次の「${next===16?'あなた':next}」まで、あと${next-route.length}マス。` : '「私」から「あなた」へ、ひと筆。');
 }
 function takeStep(cell) {
   if (!letter || opened || $('receive').hidden || !Number.isInteger(cell) || cell < 0 || cell > 15) return;
   if (route.at(-1) === cell) return;
   if (route.length > 1 && route.at(-2) === cell) { route.pop(); redraw(); return; }
-  if (!route.length && board.clues.get(cell) !== 1) { redraw('「1」のマスからはじめてみて。'); return; }
+  if (!route.length && board.clues.get(cell) !== 1) { redraw('「私」のマスからはじめてみて。'); return; }
   if (route.length && (!adjacent(route.at(-1),cell) || route.includes(cell))) return;
   const clue = board.clues.get(cell);
   if (clue && clue !== route.length+1) { redraw(`「${clue}」のマスは、${clue}番目に通ります。`); return; }
@@ -103,14 +109,37 @@ function takeStep(cell) {
 function reveal(skipped) {
   if (!letter || opened) return;
   opened = true; pointer = null; previousPoint = null;
-  $('receiveIntro').hidden = true; $('play').hidden = true; $('opened').hidden = false;
+  $('receiveIntro').hidden = true;
+  $('play').hidden = skipped;
+  $('opened').hidden = true;
   $('opened').classList.toggle('animated',!skipped);
-  $('unsealedThread').hidden = skipped;
-  $('openCaption').textContent = skipped ? '手紙を開きました' : 'ひと筆、気持ちがつながりました。';
+  $('unsealedThread').setAttribute('hidden','');
+  $('openCaption').textContent = skipped ? '手紙を開きました' : '私から、あなたへ。';
   $('letterBody').textContent = letter.text;
   $('signature').textContent = letter.from ? `${letter.from}より` : '';
   $('createOwn').textContent = previewing ? '編集に戻って、この一通を送る' : '自分も一通つくる';
-  $('opened').scrollIntoView({block:'start',behavior:'auto'}); focusTitle('openTitle');
+  const characters = letterCharacters(letter.text);
+  if (!skipped) {
+    redraw(); $('play').classList.add('delivered');
+    $('guidance').textContent = 'ひと筆、気持ちがつながりました。';
+    for (let step=0;step<route.length;step++) {
+      const cell=$('board').children[route[step]];
+      cell.disabled=true;cell.replaceChildren();
+      const text=step===0?'私':step===15?'あなた':characters[step-1] || '';
+      cell.setAttribute('aria-label',text || '線でつながるマス');
+      const span=document.createElement('span'); span.textContent=text;
+      if(step>0 && step<=characters.length) {
+        span.className='revealedCharacter';span.style.animationDelay=`${(step-1)*180}ms`;
+      }
+      cell.appendChild(span);
+    }
+  }
+  const finish=()=>{
+    $('opened').hidden=false;focusTitle('openTitle');
+    if(skipped)$('opened').scrollIntoView({block:'start',behavior:'auto'});
+  };
+  if(skipped || matchMedia('(prefers-reduced-motion: reduce)').matches)finish();
+  else revealTimer=setTimeout(finish,(characters.length-1)*180+400);
 }
 function pointerPoint(event) {
   const rect = $('board').getBoundingClientRect();
@@ -174,6 +203,7 @@ $('copyLink').onclick=async()=>{
   catch { $('shareURL').focus();$('shareURL').select();status('自動コピーができませんでした。リンクを選択してコピーしてください。'); }
 };
 function loadHash() {
+  clearTimeout(revealTimer);
   if (!location.hash) { showComposer(); return; }
   const value=decodeLetter(location.hash);
   if(value)showLetter(value);

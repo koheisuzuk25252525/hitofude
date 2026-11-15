@@ -9,12 +9,16 @@ for(let rotation=0;rotation<4;rotation++){
   assert.equal(new Set(path).size,16);
   assert.equal(countSolutions(4,4,new Map([...clues].map(([i,n])=>[`${Math.floor(i/4)},${i%4}`,n]))),1);
 }
-const max={v:1,text:'🌸'.repeat(120),from:'名'.repeat(20),puzzle:3};
+const max={v:1,text:'🌸'.repeat(9),from:'名'.repeat(20),puzzle:3};
 assert.deepEqual(decodeLetter(encodeLetter(max)),max);
-for(const patch of [{v:2},{text:''},{text:' '},{text:'x'.repeat(121)},{from:'x'.repeat(21)},{from:'a\nb'},{text:'\0'},{puzzle:4},{puzzle:-1},{puzzle:0.5},{text:123}]){
+for(const patch of [{v:2},{text:''},{text:' '},{text:'x'.repeat(10)},{from:'x'.repeat(21)},{from:'a\nb'},{text:'\0'},{text:'あ\nい'},{puzzle:4},{puzzle:-1},{puzzle:0.5},{text:123}]){
   const value={...max,...patch};
   assert.throws(()=>encodeLetter(value));
   assert.equal(decodeLetter('#letter='+Buffer.from(JSON.stringify(value)).toString('base64url')),null);
 }
 for(const hash of ['#letter=%%%','#letter=_w','#letter=e30','#letter='+ 'a'.repeat(3000),'#other=abc'])assert.equal(decodeLetter(hash),null);
 console.log('PASS letter Unicode boundaries, untrusted payload validation, and all four uniquely solvable boards');
+
+const family={v:1,text:'👨‍👩‍👧‍👦'.repeat(9),from:'',puzzle:0};
+assert.deepEqual(decodeLetter(encodeLetter(family)),family);
+assert.deepEqual(decodeLetter(encodeLetter({...family,text:'か\u3099'.repeat(9)})).text,'か\u3099'.repeat(9));

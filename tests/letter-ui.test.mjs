@@ -90,13 +90,16 @@ try {
   await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await cdp('Page.navigate', {url:url+'letter.html'});
   await waitFor('typeof encodeLetter === "function"');
-  check('Unicode round trip',await evaluate(`(()=>{const v={v:1,text:'ありがとう\\n🌸',from:'こうへい',puzzle:2};return JSON.stringify(decodeLetter(encodeLetter(v)))===JSON.stringify(v)})()`),true);
+  check('Unicode round trip',await evaluate(`(()=>{const v={v:1,text:'ありがとう🌸',from:'こうへい',puzzle:2};return JSON.stringify(decodeLetter(encodeLetter(v)))===JSON.stringify(v)})()`),true);
   check('invalid links rejected',await evaluate(`[decodeLetter('#letter=x'),decodeLetter('#letter='+ 'a'.repeat(3001)),decodeLetter('#bad')]`),[null,null,null]);
-  check('message limits enforced',await evaluate(`validLetter({v:1,text:'あ'.repeat(121),from:'',puzzle:0})`),false);
-  await evaluate(`$('message').value='今日はありがとう。\\nまた会おう！';$('sender').value='こうへい';$('preview').click()`);
+  check('message limits enforced',await evaluate(`validLetter({v:1,text:'あ'.repeat(10),from:'',puzzle:0})`),false);
+  await evaluate(`$('message').value='あ'.repeat(10);updateForm()`);
+  check('ten characters cannot be sent',await evaluate(`$('message').checkValidity()`),false);
+  await evaluate(`$('message').value='今日はありがとう。';$('sender').value='こうへい';$('preview').click()`);
   check('sealed preview has no message in reveal element',await evaluate(`[$('compose').hidden,$('previewBar').hidden,$('letterBody').textContent]`),[true,false,'']);
   await evaluate(`showLetter({v:1,text:'今日はありがとう。',from:'こうへい',puzzle:0},true)`);
   await evaluate(`$('board').children[5].click()`);
+  check('endpoints are labelled before solving',await evaluate(`[$('board').children[0].textContent,$('board').children[12].textContent]`),['私','あなた']);
   check('cannot start on wrong cell',await evaluate('route.length'),0);
   const centers=await evaluate(`[...$('board').children].map(e=>{const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})`);
   const touch=(type,point)=>cdp('Input.dispatchTouchEvent',{type,touchPoints:point?[{...point,id:1}]:[]});
@@ -107,6 +110,8 @@ try {
   }
   check('complete letter with real touch gestures',await evaluate('opened'),true);
   await evaluate(`showLetter({v:1,text:'今日はありがとう。',from:'こうへい',puzzle:0},true);for(const i of board.path)$('board').children[i].click()`);
+  await waitFor(`!$('opened').hidden`);
+  check('letters appear on path between endpoints',await evaluate(`route.map(i=>$('board').children[i].textContent).filter(Boolean)`),['私',...'今日はありがとう。','あなた']);
   check('keyboard activation completes and reveals',await evaluate(`[opened,$('letterBody').textContent,document.activeElement.id]`),[true,'今日はありがとう。','openTitle']);
   await evaluate(`$('createOwn').click()`);
   check('preview returns to retained draft',await evaluate(`[$('compose').hidden,$('sender').value,$('message').value.startsWith('今日は')]`),[false,'こうへい',true]);
@@ -124,7 +129,7 @@ try {
   await evaluate(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:undefined});$('copyLink').click()`);
   await waitFor(`$('status').textContent.includes('自動コピー')`);
   check('clipboard denied selects link for manual copy',await evaluate(`$('shareURL').selectionEnd===$('shareURL').value.length`),true);
-  const hash=await evaluate(`encodeLetter({v:1,text:'<img src=x onerror=alert(1)>ありがとう',from:'友だち',puzzle:1})`);
+  const hash=await evaluate(`encodeLetter({v:1,text:'<img>',from:'友だち',puzzle:1})`);
   await cdp('Page.navigate',{url:url+'letter.html'+hash});
   await waitFor(`typeof letter!=='undefined' && !!letter`);
   check('received message not rendered before opening',await evaluate(`$('letterBody').textContent`),'');
@@ -137,7 +142,7 @@ try {
   await evaluate(`$('skip').click()`);
   check('reduced motion disables animation',await evaluate(`getComputedStyle($('letterBody')).animationName`),'none');
   await cdp('Emulation.setEmulatedMedia',{features:[]});
-  check('skip reveals literal text safely',await evaluate(`[$('letterBody').children.length,$('letterBody').textContent.startsWith('<img'),$('unsealedThread').hidden]`),[0,true,true]);
+  check('skip reveals literal text safely',await evaluate(`[$('letterBody').children.length,$('letterBody').textContent.startsWith('<img'),getComputedStyle($('unsealedThread')).display==='none']`),[0,true,true]);
   await evaluate(`$('createOwn').click()`);
   check('recipient starts a fresh letter without old hash',await evaluate(`[$('message').value,location.hash,$('compose').hidden]`),['','',false]);
   await evaluate(`location.hash='#letter=broken'`);
@@ -147,8 +152,8 @@ try {
   if(process.env.UI_SCREENSHOT_DIR){
     await mkdir(process.env.UI_SCREENSHOT_DIR,{recursive:true});
     for(const screen of ['compose','sealed','opened']){
-      if(screen==='sealed')await evaluate(`showLetter({v:1,text:'いつも、何でもない話を聞いてくれてありがとう。\\nまたコーヒーでも飲もう。',from:'こうへい',puzzle:0})`);
-      if(screen==='opened')await evaluate(`for(const i of board.path)takeStep(i)`);
+      if(screen==='sealed')await evaluate(`showLetter({v:1,text:'いつもありがとう',from:'こうへい',puzzle:0})`);
+      if(screen==='opened'){await evaluate(`for(const i of board.path)takeStep(i)`);await waitFor(`!$('opened').hidden`);}
       await evaluate(`Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{})))`);
       const shot=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
       await writeFile(join(process.env.UI_SCREENSHOT_DIR,screen+'.png'),Buffer.from(shot.data,'base64'));

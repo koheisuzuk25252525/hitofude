@@ -20,9 +20,9 @@
 <div class="intro"><span class="eyebrow">ひと手間に、気持ちを込めて。</span><h1 id="composeTitle">言葉を、<br>一筆に包んで。</h1><p>いつもの「ありがとう」に、開く楽しみを。<br>短いパズルの先で、あなたの言葉が届きます。</p></div>
 <form id="letterForm" class="paper">
 <label for="message">届けたい言葉</label>
-<textarea id="message" rows="4" required maxlength="240" placeholder="この前は話を聞いてくれてありがとう。&#10;また、ゆっくりお茶しよう。" aria-describedby="messageHelp"></textarea>
-<div class="fieldHelp"><span id="messageHelp">短いひと言も、そのままどうぞ。</span><output id="counter" for="message">0 / 120文字</output></div>
-<details class="ideas"><summary>言葉に迷ったら</summary><div class="examples"><button type="button" data-example="今日も、おつかれさま。\nちょっとひと息ついてね。">おつかれさま</button><button type="button" data-example="話を聞いてくれてありがとう。\nまた、ゆっくりお茶しよう。">ありがとう</button><button type="button" data-example="お誕生日おめでとう！\n今年も、あなたらしい一年になりますように。">おめでとう</button></div></details>
+<input id="message" required maxlength="180" placeholder="いつもありがとう" aria-describedby="messageHelp" autocomplete="off">
+<div class="fieldHelp"><span id="messageHelp">「私」から「あなた」へ。言葉は9文字まで。</span><output id="counter" for="message">0 / 9文字</output></div>
+<details class="ideas"><summary>言葉に迷ったら</summary><div class="examples"><button type="button" data-example="おつかれさま">おつかれさま</button><button type="button" data-example="いつもありがとう">ありがとう</button><button type="button" data-example="お誕生日おめでとう">おめでとう</button></div></details>
 <label for="sender">あなたの名前 <span class="muted">（任意）</span></label><input id="sender" autocomplete="off" maxlength="40" placeholder="呼ばれている名前で" aria-describedby="senderHelp"><small id="senderHelp">20文字まで。名前は開く前から相手に見えます。</small>
 <p class="privacyNote">手紙は共有リンクに含まれます。リンクを知っている人は読めるので、秘密の情報は書かないでください。送信後の変更・取り消しはできません。</p>
 <button type="button" class="secondary wide" id="preview">受け取り方を試す</button><button type="submit" class="primary wide">この一通を送る <span aria-hidden="true">↗</span></button>
@@ -35,10 +35,10 @@
 <div class="intro" id="receiveIntro"><span class="eyebrow" id="fromLabel"></span><h1 id="receiveTitle">あなたへ、<br>一筆の手紙。</h1><p>ひと筆、つないで開けてみて。</p></div>
 <div id="play" class="paper">
 <div class="seal" aria-hidden="true">✉</div>
-<p class="instruction">「1」から、すべてのマスを一度ずつ。<br>数字は、そのマスを<strong>何番目に通るか</strong>です。</p>
+<p class="instruction">「私」から「あなた」へ、すべてのマスを一度ずつ。<br>数字は、そのマスを<strong>何番目に通るか</strong>です。</p>
 <p class="fine">上下左右につなげます。順にタップしても遊べます。</p>
 <div class="boardFrame"><div id="board" class="board" role="group" aria-label="4かける4の一筆パズル"></div><svg class="route" viewBox="0 0 400 400" aria-hidden="true"><polyline id="thread" points=""/></svg></div>
-<p id="guidance" class="guidance" role="status">「1」から、ひと筆。</p>
+<p id="guidance" class="guidance" role="status">「私」から「あなた」へ、ひと筆。</p>
 <div class="tools"><button id="undo" class="secondary">一つ戻す</button><button id="reset" class="secondary">はじめから</button><button id="hint" class="secondary">次の一歩</button></div>
 <button id="skip" class="textButton wide">解かずに手紙を読む</button>
 </div>
