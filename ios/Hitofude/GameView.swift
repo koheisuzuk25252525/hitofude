@@ -201,7 +201,7 @@ struct GameView: View {
         .background(palette.background.ignoresSafeArea())
     }
 
-    var body: some View {
+    private var gameContent: some View {
         ZStack {
             playingScreen
                 .allowsHitTesting(!showsResult && !rewardedHints.isBusy)
@@ -233,6 +233,10 @@ struct GameView: View {
         .alert("広告について", isPresented: Binding(get: { rewardedHints.error != nil }, set: { if !$0 { rewardedHints.error = nil } })) {
             Button("閉じる", role: .cancel) { rewardedHints.error = nil }
         } message: { Text(rewardedHints.error ?? "") }
+    }
+
+    private var activeContent: some View {
+        gameContent
         .foregroundStyle(palette.foreground)
         .tint(palette.accent)
         .environment(\.hitofudePalette, palette)
@@ -244,6 +248,10 @@ struct GameView: View {
         }
         .onChange(of: showsMore) { _, _ in updateActivity() }
         .sheet(isPresented: $showsMore, onDismiss: openPendingDestination) { moreSheet }
+    }
+
+    var body: some View {
+        activeContent
         .onChange(of: game.isFinished) { _, finished in showsResult = finished }
         .onChange(of: showsHelp) { _, _ in updateActivity() }
         .onChange(of: showsChallenge) { _, _ in updateActivity() }
@@ -377,15 +385,7 @@ struct GameView: View {
                         showsMore = false
                         Task { await game.load(game.mode) }
                     }.disabled(game.isLoading)
-                    Button("リンクで対戦") { chooseMore(.challenge) }.disabled(game.isLoading)
-                    VStack(spacing: 6) {
-                        Button { chooseMore(.letter) } label: {
-                            Label("一筆の手紙", systemImage: "envelope")
-                        }
-                        Text("9文字までの言葉を、私からあなたへ。\n手紙の作成・受け取りには通信が必要です。")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
+                    connectionActions
                     TimelineView(.periodic(from: .now, by: 60)) { context in progressCard(at: context.date) }
                     if let completionMessage = game.completionMessage { Text(completionMessage) }
                     Button("不具合・感想を送る") {
@@ -417,6 +417,20 @@ struct GameView: View {
             }
             .navigationTitle("遊び方・記録・設定")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("閉じる") { showsMore = false } } }
+        }
+    }
+
+    private var connectionActions: some View {
+        VStack(spacing: 16) {
+                    Button("リンクで対戦") { chooseMore(.challenge) }.disabled(game.isLoading)
+                    VStack(spacing: 6) {
+                        Button { chooseMore(.letter) } label: {
+                            Label("一筆の手紙", systemImage: "envelope")
+                        }
+                        Text("9文字までの言葉を、私からあなたへ。\n手紙の作成・受け取りには通信が必要です。")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
         }
     }
 
