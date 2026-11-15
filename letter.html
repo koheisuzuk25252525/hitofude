@@ -11,17 +11,23 @@
 <meta property="og:image" content="https://koheisuzuk25252525.github.io/hitofude/assets/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="letter.css">
+<script src="letter-links.js" defer></script>
 <script src="letter.js" defer></script>
 </head>
 <body>
 <header><a class="brand" href="./">ヒト<span>フデ</span></a><span class="eyebrow">一筆の手紙</span></header>
 <main>
+<aside id="appLinks" class="paper" hidden aria-label="アプリで遊ぶ">
+<a id="openApp" class="secondary wide">アプリでこの手紙を開く</a>
+<a id="installApp" class="primary wide" hidden></a>
+<p id="installHelp" class="fine">まだアプリを入れていない方も、このページで遊べます。</p>
+</aside>
 <section id="compose" aria-labelledby="composeTitle">
 <div class="intro"><span class="eyebrow">ひと手間に、気持ちを込めて。</span><h1 id="composeTitle">言葉を、<br>一筆に包んで。</h1><p>いつもの「ありがとう」に、開く楽しみを。<br>短いパズルの先で、あなたの言葉が届きます。</p></div>
 <form id="letterForm" class="paper">
 <label for="message">届けたい言葉</label>
-<input id="message" required maxlength="180" placeholder="いつもありがとう" aria-describedby="messageHelp" autocomplete="off">
-<div class="fieldHelp"><span id="messageHelp">「私」から「あなた」へ。言葉は9文字まで。</span><output id="counter" for="message">0 / 9文字</output></div>
+<input id="message" required placeholder="いつもありがとう" aria-describedby="messageHelp" autocomplete="off">
+<div class="fieldHelp"><span id="messageHelp">文字数に合わせて盤面が大きくなります。</span><output id="counter" for="message">0文字</output></div>
 <details class="ideas"><summary>言葉に迷ったら</summary><div class="examples"><button type="button" data-example="おつかれさま">おつかれさま</button><button type="button" data-example="いつもありがとう">ありがとう</button><button type="button" data-example="お誕生日おめでとう">おめでとう</button></div></details>
 <label for="sender">あなたの名前 <span class="muted">（任意）</span></label><input id="sender" autocomplete="off" maxlength="40" placeholder="呼ばれている名前で" aria-describedby="senderHelp"><small id="senderHelp">20文字まで。名前は開く前から相手に見えます。</small>
 <p class="privacyNote">手紙は共有リンクに含まれます。リンクを知っている人は読めるので、秘密の情報は書かないでください。送信後の変更・取り消しはできません。</p>
