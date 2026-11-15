@@ -1466,3 +1466,33 @@ private final class TestAdConsent: AdConsentProviding {
     }
     func presentPrivacyOptions() async throws { formCount += 1 }
 }
+
+final class LetterLinkTests: XCTestCase {
+    private func link(text: String = "いつもありがとう", version: Int = 2, prefix: String = "https://koheisuzuk25252525.github.io/hitofude/letter.html") throws -> URL {
+        let data = try JSONSerialization.data(withJSONObject: ["v":version,"text":text,"from":"友だち","puzzle":2])
+        let payload = data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return try XCTUnwrap(URL(string: prefix + "#letter=" + payload))
+    }
+    func testHTTPSAndAppLinksKeepTheWholeLetter() throws {
+        for prefix in ["https://koheisuzuk25252525.github.io/hitofude/letter.html", "hitofude://letter"] {
+            let source = try link(text: "いつもありがとう。また遊びに行こうね。", prefix: prefix)
+            let destination = try XCTUnwrap(LetterDestination(url: source))
+            XCTAssertEqual(destination.webURL.fragment, source.fragment)
+            XCTAssertEqual(destination.webURL.host, "koheisuzuk25252525.github.io")
+            XCTAssertEqual(URLComponents(url: destination.webURL, resolvingAgainstBaseURL: false)?.queryItems, [URLQueryItem(name: "inApp", value: "1")])
+        }
+        XCTAssertNotNil(LetterDestination(url: try link(version: 1)))
+    }
+    func testRejectsOtherRoutesAndMalformedPayloads() throws {
+        for prefix in ["https://example.com/hitofude/letter.html", "http://koheisuzuk25252525.github.io/hitofude/letter.html", "hitofude://other", "https://koheisuzuk25252525.github.io/other.html"] {
+            XCTAssertNil(LetterDestination(url: try link(prefix: prefix)))
+        }
+        for value in ["hitofude://letter", "hitofude://letter#letter=broken", "hitofude://letter#letter=" + String(repeating: "a", count: 8200)] {
+            XCTAssertNil(LetterDestination(url: try XCTUnwrap(URL(string: value))))
+        }
+        XCTAssertNil(LetterDestination(url: try link(text: "")))
+        XCTAssertNil(LetterDestination(url: try link(version: 3)))
+        XCTAssertNil(LetterDestination(url: try link(text: "あ\nい")))
+        XCTAssertNil(LetterDestination(url: try link(text: String(repeating: "あ", count: 10), version: 1)))
+    }
+}
