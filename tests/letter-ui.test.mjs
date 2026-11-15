@@ -99,7 +99,7 @@ try {
   check('sealed preview has no message in reveal element',await evaluate(`[$('compose').hidden,$('previewBar').hidden,$('letterBody').textContent]`),[true,false,'']);
   await evaluate(`showLetter({v:1,text:'今日はありがとう。',from:'こうへい',puzzle:0},true)`);
   await evaluate(`$('board').children[5].click()`);
-  check('endpoints are labelled before solving',await evaluate(`[$('board').children[0].textContent,$('board').children[12].textContent]`),['送り手','受け手']);
+  check('endpoints are labelled before solving',await evaluate(`[$('board').children[0].textContent,$('board').children[12].textContent]`),['1','16']);
   check('cannot start on wrong cell',await evaluate('route.length'),0);
   const centers=await evaluate(`[...$('board').children].map(e=>{const r=e.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})`);
   const touch=(type,point)=>cdp('Input.dispatchTouchEvent',{type,touchPoints:point?[{...point,id:1}]:[]});
@@ -111,7 +111,7 @@ try {
   check('complete letter with real touch gestures',await evaluate('opened'),true);
   await evaluate(`showLetter({v:1,text:'今日はありがとう。',from:'こうへい',puzzle:0},true);for(const i of board.path)$('board').children[i].click()`);
   await waitFor(`!$('opened').hidden`);
-  check('letters appear on path between endpoints',await evaluate(`route.map(i=>$('board').children[i].textContent).filter(Boolean)`),['送り手',...'今日はありがとう。','受け手']);
+  check('letters appear on path between endpoints',await evaluate(`route.map(i=>$('board').children[i].textContent).filter(Boolean)`),['1',...'今日はありがとう。','16']);
   check('keyboard activation completes and reveals',await evaluate(`[opened,$('letterBody').textContent,document.activeElement.id]`),[true,'今日はありがとう。','openTitle']);
   await evaluate(`$('createOwn').click()`);
   check('preview returns to retained draft',await evaluate(`[$('compose').hidden,$('sender').value,$('message').value.startsWith('今日は')]`),[false,'こうへい',true]);
@@ -158,7 +158,7 @@ try {
   for(const length of [1,10,30,70]){
     await evaluate(`showLetter({v:2,text:'あ'.repeat(${length}),from:'',puzzle:0});for(const i of board.path)takeStep(i)`);
     await waitFor(`!$('opened').hidden`);
-    check(length+' characters all reach recipient',await evaluate(`[$('letterBody').textContent.length,route.map(i=>$('board').children[i].textContent).filter(Boolean).join(''),$('board').children[route.at(-2)].textContent]`),[length,'送り手'+'あ'.repeat(length)+'受け手','あ']);
+    check(length+' characters all reach recipient',await evaluate(`[$('letterBody').textContent.length,route.map(i=>$('board').children[i].textContent).filter(Boolean).join(''),$('board').children[route.at(-2)].textContent]`),[length,'1'+'あ'.repeat(length)+String(await evaluate('board.path.length')),'あ']);
     check(length+' character board fits phone width',await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
   }
   await evaluate(`history.replaceState(null,'','letter.html');showComposer();$('message').value='いつもありがとう';$('sender').value='友だち'`);
@@ -178,7 +178,7 @@ try {
     check(difficulty+' fits narrow phone',await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
     await evaluate(`for(const i of board.path)takeStep(i)`);
     await waitFor(`!$('opened').hidden`);
-    check(difficulty+' reveals the complete message',await evaluate(`route.map(i=>$('board').children[i].textContent).filter(Boolean).join('')`),'送り手いつもありがとう受け手');
+    check(difficulty+' reveals the complete message',await evaluate(`route.map(i=>$('board').children[i].textContent).filter(Boolean).join('')`),'1いつもありがとう'+size);
     await evaluate(`history.replaceState(null,'','letter.html');showComposer();$('message').value='いつもありがとう';$('sender').value='友だち';Object.defineProperty(navigator,'share',{configurable:true,value:undefined})`);
   }
   await evaluate(`$('preview').click();globalThis.oldSeed=letter.seed;$('newPuzzle').click()`);
