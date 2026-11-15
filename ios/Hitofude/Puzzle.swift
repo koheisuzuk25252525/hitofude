@@ -257,3 +257,24 @@ enum ReturnGreeting: String, CaseIterable {
     }
     var text: String { "おかえりなさい" }
 }
+
+/// Presentation only: puzzle values, validation and shared seeds stay numeric.
+enum PuzzleNotation {
+    case numbers, alphabet
+
+    func symbol(_ order: Int) -> String {
+        guard self == .alphabet, (1...26).contains(order) else { return String(order) }
+        return String(UnicodeScalar(64 + order)!)
+    }
+
+    func accessibleClue(_ order: Int) -> String {
+        self == .alphabet ? "文字\(symbol(order))、\(order)番目に通るマス" : "数字\(order)"
+    }
+
+    func message(_ text: String) -> String {
+        guard self == .alphabet else { return text }
+        // Position counts remain numbers; only references to the displayed start label change.
+        return text.replacingOccurrences(of: "「1」", with: "「A」")
+            .replacingOccurrences(of: "1のマスから", with: "Aのマスから")
+    }
+}

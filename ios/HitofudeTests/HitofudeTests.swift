@@ -5,6 +5,20 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testAlphabetNotationKeepsPositionsAndMapsEveryEasyCell() {
+        let letters = (1...25).map { PuzzleNotation.alphabet.symbol($0) }
+        XCTAssertEqual(letters.joined(), "ABCDEFGHIJKLMNOPQRSTUVWXY")
+        XCTAssertEqual(Set(letters).count, 25)
+        XCTAssertEqual(PuzzleNotation.alphabet.accessibleClue(7), "文字G、7番目に通るマス")
+        XCTAssertEqual(PuzzleNotation.alphabet.message("「1」から、目印の2マス目へ進んでね"), "「A」から、目印の2マス目へ進んでね")
+        XCTAssertEqual(PuzzleNotation.alphabet.message("1のマスからはじめてね"), "Aのマスからはじめてね")
+        XCTAssertEqual(PuzzleNotation.alphabet.message("そのマスは7番目に通ってね"), "そのマスは7番目に通ってね")
+        XCTAssertEqual(PuzzleNotation.numbers.symbol(7), "7")
+        XCTAssertEqual(PuzzleNotation.numbers.message("「1」からなぞってスタート"), "「1」からなぞってスタート")
+        XCTAssertEqual(PuzzleNotation.alphabet.symbol(0), "0")
+        XCTAssertEqual(PuzzleNotation.alphabet.symbol(27), "27")
+    }
+
     func testProductionAdsRequireVerifiedProductionAndNonDebugBuild() {
         XCTAssertEqual(AdPlacement.unitID(isDebug: true, verifiedProduction: true), AdPlacement.test)
         XCTAssertEqual(AdPlacement.unitID(isDebug: true, verifiedProduction: false), AdPlacement.test)

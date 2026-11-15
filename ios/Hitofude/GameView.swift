@@ -161,6 +161,21 @@ struct GameView: View {
     @State private var showsChallenge = false
     @State private var challengeInput = ""
     @State private var challengeError: String?
+    #if DEBUG
+    @State private var alphabetPreview = false
+    #endif
+    private var notation: PuzzleNotation {
+        #if DEBUG
+        if alphabetPreview, game.mode == .easy, game.rival == nil { return .alphabet }
+        #endif
+        return .numbers
+    }
+    private var displayedGuidance: String {
+        if let message = game.message { return notation.message(message) }
+        guard notation == .alphabet, !game.isFinished else { return game.guidance }
+        guard !game.route.isEmpty, let next = game.nextClue else { return "「A」からなぞってスタート" }
+        return "次の文字 \(notation.symbol(next)) まで、あと \(next - game.route.count) マス"
+    }
 
     private var playingScreen: some View {
         ViewThatFits(in: .vertical) {
@@ -269,6 +284,10 @@ struct GameView: View {
             DifficultySelector(selected: game.mode, isLoading: game.isLoading) { mode in
                 Task { await game.load(mode) }
             }
+            if notation == .alphabet {
+                Text("A＝1、B＝2…Y＝25番目に通ります")
+                    .font(.caption).foregroundStyle(palette.accent)
+            }
             if let greeting = game.returnGreeting {
                 Label(greeting.text, systemImage: greeting.symbol).font(.caption).lineLimit(2)
             }
@@ -282,7 +301,7 @@ struct GameView: View {
     @ViewBuilder
     private var playArea: some View {
         if let puzzle = game.puzzle {
-            BoardView(game: game, puzzle: puzzle, previewCorrection: showsRewardOffer ? game.guideCorrectionCell : nil)
+            BoardView(game: game, puzzle: puzzle, previewCorrection: showsRewardOffer ? game.guideCorrectionCell : nil, notation: notation)
                 .overlay {
                     if game.isPaused && !game.isFinished {
                         ZStack {
@@ -360,6 +379,23 @@ struct GameView: View {
                         feedbackContext = game.feedbackContext
                         chooseMore(.feedback)
                     }
+                    #if DEBUG
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("文字の置き換えを試す").font(.headline)
+                        Picker("盤面の表示", selection: $alphabetPreview) {
+                            Text("数字").tag(false)
+                            Text("A〜Y").tag(true)
+                        }.pickerStyle(.segmented)
+                        Text("「やさしい」の通常問題で試せます。例えばGのマスは7番目に通ります。切り替えても問題や途中の線はそのままです。")
+                            .font(.caption)
+                        Text("対戦・ほかの難易度は数字表示です。記録と共有リンクは数字版と共通です。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        if alphabetPreview {
+                            Text("A B C D E ／ F G H I J ／ K L M N O ／ P Q R S T ／ U V W X Y")
+                                .font(.caption.monospaced())
+                        }
+                    }
+                    #endif
                     Button("プレイ状況の計測") { chooseMore(.analytics) }
                     Button("広告のプライバシー設定") { chooseMore(.adPrivacy) }
                     Text("ヒントは3回。中断中はタイマーが止まります。")
@@ -468,7 +504,7 @@ struct GameView: View {
                         .accessibilityLabel("経過時間 \(GameModel.timeString(game.elapsed(at: context.date)))")
                 }
             }
-            Text(game.message ?? game.guidance).font(.caption.bold()).multilineTextAlignment(.center)
+            Text(displayedGuidance).font(.caption.bold()).multilineTextAlignment(.center)
                 .foregroundStyle(game.message == nil ? palette.foreground : palette.accent)
                 .lineLimit(typeSize.isAccessibilitySize ? 8 : (game.mode == .tutorial ? 3 : 2), reservesSpace: !typeSize.isAccessibilitySize)
                 .accessibilityAddTraits(.updatesFrequently)
@@ -835,6 +871,7 @@ private struct BoardView: View {
     @ObservedObject var game: GameModel
     let puzzle: Puzzle
     var previewCorrection: Cell? = nil
+    var notation: PuzzleNotation = .numbers
 
     var body: some View {
         GeometryReader { geometry in
@@ -910,20 +947,20 @@ private struct BoardView: View {
     private func cellView(index: Int, step: CGFloat, order: Int?, nextClue: Int?, solution: Int?) -> some View {
         let cell = Cell(row: index / puzzle.size, column: index % puzzle.size)
         let clue = solution ?? puzzle.clues[cell]
-        let clueLabel = clue.map { "数字\($0)" } ?? "空白"
+        let clueLabel = clue.map { notation.accessibleClue($0) } ?? "空白"
         let orderLabel = order.map { "、\($0)番目に通過" } ?? ""
         let isTarget = clue != nil && clue == nextClue
         let isHint = game.highlighted == cell
         let isReturnPoint = (previewCorrection ?? game.correctionCell) == cell
         let isPracticeTarget = game.tutorialTarget == cell
-        let hintLabel = isHint ? "ヒント：\(game.hintNumber ?? game.route.count + 1)番目に進むマス" : isTarget ? "次に目指す数字" : ""
+        let hintLabel = isHint ? "ヒント：\(game.hintNumber ?? game.route.count + 1)番目に進むマス" : isTarget ? (notation == .alphabet ? "次に目指す文字" : "次に目指す数字") : ""
         return Button { game.step(cell) } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isHint ? palette.accent.opacity(0.35) :
                           order != nil ? palette.accent.opacity(0.16) : palette.soft.opacity(0.5))
                 if let number = clue ?? order {
-                    Text("\(number)")
+                    Text(notation.symbol(number))
                         .font(.system(size: max(14, step * 0.38), weight: clue != nil ? .bold : .regular, design: .rounded))
                         .foregroundStyle(palette.foreground)
                 }
@@ -944,7 +981,7 @@ private struct BoardView: View {
                 }
                 if isHint {
                     RoundedRectangle(cornerRadius: 8).strokeBorder(palette.accent, lineWidth: 3)
-                    VStack { HStack { Spacer(); Text("\(game.hintNumber ?? game.route.count + 1)").font(.caption2.bold()).padding(3).background(palette.accent, in: Capsule()).foregroundStyle(palette.background) }; Spacer() }
+                    VStack { HStack { Spacer(); Text(notation.symbol(game.hintNumber ?? game.route.count + 1)).font(.caption2.bold()).padding(3).background(palette.accent, in: Capsule()).foregroundStyle(palette.background) }; Spacer() }
                 } else if isTarget {
                     RoundedRectangle(cornerRadius: 8).strokeBorder(palette.foreground.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [3]))
                 }
