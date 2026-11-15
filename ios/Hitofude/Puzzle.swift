@@ -284,6 +284,10 @@ enum PuzzleNotation {
 struct LetterDestination: Identifiable {
     let id = UUID()
     let webURL: URL
+    static var compose: LetterDestination {
+        LetterDestination(webURL: URL(string: "https://koheisuzuk25252525.github.io/hitofude/letter.html?inApp=1")!)
+    }
+    private init(webURL: URL) { self.webURL = webURL }
 
     init?(url: URL) {
         let isWeb = url.scheme == "https" && url.host == "koheisuzuk25252525.github.io" && url.path == "/hitofude/letter.html" && url.port == nil

@@ -40,7 +40,7 @@ struct HitofudeRootView: View {
 
     var body: some View {
         Group {
-            if introduction.stage == .done { GameView(hasExternalLetter: incomingLetter != nil) }
+            if introduction.stage == .done { GameView(hasExternalLetter: incomingLetter != nil, onComposeLetter: { incomingLetter = .compose }) }
             else { IntroductionView(model: introduction) }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
@@ -157,13 +157,13 @@ private struct IntroductionView: View {
 
 struct GameView: View {
     var hasExternalLetter = false
+    var onComposeLetter: () -> Void = {}
     @StateObject private var game = GameModel(analytics: PlayAnalytics.shared, sounds: GameAudio.shared)
     @StateObject private var rewardedHints = RewardedHints()
     @State private var showsRewardOffer = false
     @ObservedObject private var audio = GameAudio.shared
     @State private var showsAnalytics = false
     @State private var showsFeedback = false
-    @State private var showsLetter = false
     @State private var feedbackContext = ""
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -275,8 +275,6 @@ struct GameView: View {
         .sheet(isPresented: $showsAnalytics) { AnalyticsSettingsView(analytics: PlayAnalytics.shared) }
         .sheet(isPresented: $showsFeedback) { FeedbackView(context: feedbackContext) }
         .onChange(of: hasExternalLetter) { _, _ in updateActivity() }
-        .onChange(of: showsLetter) { _, _ in updateActivity() }
-        .sheet(isPresented: $showsLetter, onDismiss: updateActivity) { PuzzleLetterView() }
         .sheet(isPresented: $showsProgress) {
             ProgressCalendarView(game: game)
         }
@@ -379,7 +377,7 @@ struct GameView: View {
     private func openPendingDestination() {
         let destination = pendingDestination
         switch destination {
-        case .letter: showsLetter = true
+        case .letter: onComposeLetter()
         case .feedback: showsFeedback = true
         case .analytics: showsAnalytics = true
         case .adPrivacy: rewardedHints.showPrivacyOptions()
@@ -451,7 +449,7 @@ struct GameView: View {
 
     private func updateActivity() {
         // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
-        let menu = hasExternalLetter || showsLetter || showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
+        let menu = hasExternalLetter || showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
