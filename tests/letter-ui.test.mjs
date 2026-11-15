@@ -94,7 +94,7 @@ try {
   check('invalid links rejected',await evaluate(`[decodeLetter('#letter=x'),decodeLetter('#letter='+ 'a'.repeat(3001)),decodeLetter('#bad')]`),[null,null,null]);
   check('message limits enforced',await evaluate(`validLetter({v:1,text:'あ'.repeat(10),from:'',puzzle:0})`),false);
   await evaluate(`$('message').value='あ'.repeat(10);updateForm()`);
-  check('ten characters cannot be sent',await evaluate(`$('message').checkValidity()`),false);
+  check('ten characters can be sent',await evaluate(`$('message').checkValidity()`),true);
   await evaluate(`$('message').value='今日はありがとう。';$('sender').value='こうへい';$('preview').click()`);
   check('sealed preview has no message in reveal element',await evaluate(`[$('compose').hidden,$('previewBar').hidden,$('letterBody').textContent]`),[true,false,'']);
   await evaluate(`showLetter({v:1,text:'今日はありがとう。',from:'こうへい',puzzle:0},true)`);
@@ -148,6 +148,19 @@ try {
   await evaluate(`location.hash='#letter=broken'`);
   await waitFor(`!$('invalid').hidden`);
   check('bad link shows recovery instead of an empty puzzle',await evaluate(`[$('compose').hidden,$('receive').hidden]`),[true,true]);
+  check('app link retains message payload',await evaluate(`(()=>{const value={v:2,text:'ありがとう。また遊ぼうね',from:'友だち',puzzle:0};updateAppLinks(value);return decodeLetter(new URL($('openApp').href).hash).text})()`),'ありがとう。また遊ぼうね');
+  check('no invented store link',await evaluate(`$('installApp').hidden`),true);
+  await evaluate(`window.HITOFUDE_INSTALL={appStoreURL:'javascript:alert(1)',testFlightURL:''};updateAppLinks({v:2,text:'ありがとう',from:'',puzzle:0})`);
+  check('unsafe install URL hidden',await evaluate(`$('installApp').hidden`),true);
+  await evaluate(`history.replaceState(null,'','letter.html?inApp=1');updateAppLinks({v:2,text:'ありがとう',from:'',puzzle:0})`);
+  check('in-app page suppresses recursive app opening',await evaluate(`$('appLinks').hidden`),true);
+  await evaluate(`history.replaceState(null,'','letter.html')`);
+  for(const length of [1,10,30,70]){
+    await evaluate(`showLetter({v:2,text:'あ'.repeat(${length}),from:'',puzzle:0});for(const i of board.path)takeStep(i)`);
+    await waitFor(`!$('opened').hidden`);
+    check(length+' characters all reach recipient',await evaluate(`[$('letterBody').textContent.length,route.map(i=>$('board').children[i].textContent).filter(Boolean).join(''),$('board').children[route.at(-2)].textContent]`),[length,'私'+'あ'.repeat(length)+'あなた','あ']);
+    check(length+' character board fits phone width',await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
+  }
   await evaluate(`history.replaceState(null,'','letter.html');showComposer()`);
   if(process.env.UI_SCREENSHOT_DIR){
     await mkdir(process.env.UI_SCREENSHOT_DIR,{recursive:true});
