@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import SafariServices
 import UIKit.UIGestureRecognizerSubclass
 
 private struct Palette {
@@ -148,12 +149,13 @@ struct GameView: View {
     @ObservedObject private var audio = GameAudio.shared
     @State private var showsAnalytics = false
     @State private var showsFeedback = false
+    @State private var showsLetter = false
     @State private var feedbackContext = ""
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showsMore = false
     @State private var showsResult = false
-    private enum MoreDestination { case feedback, analytics, challenge, progress, adPrivacy }
+    private enum MoreDestination { case feedback, analytics, challenge, progress, adPrivacy, letter }
     @State private var pendingDestination: MoreDestination?
     @State private var showsProgress = false
     @State private var showsHelp = false
@@ -250,6 +252,8 @@ struct GameView: View {
         .onChange(of: showsFeedback) { _, _ in updateActivity() }
         .sheet(isPresented: $showsAnalytics) { AnalyticsSettingsView(analytics: PlayAnalytics.shared) }
         .sheet(isPresented: $showsFeedback) { FeedbackView(context: feedbackContext) }
+        .onChange(of: showsLetter) { _, _ in updateActivity() }
+        .sheet(isPresented: $showsLetter, onDismiss: updateActivity) { PuzzleLetterView() }
         .sheet(isPresented: $showsProgress) {
             ProgressCalendarView(game: game)
         }
@@ -352,6 +356,7 @@ struct GameView: View {
     private func openPendingDestination() {
         let destination = pendingDestination
         switch destination {
+        case .letter: showsLetter = true
         case .feedback: showsFeedback = true
         case .analytics: showsAnalytics = true
         case .adPrivacy: rewardedHints.showPrivacyOptions()
@@ -373,6 +378,14 @@ struct GameView: View {
                         Task { await game.load(game.mode) }
                     }.disabled(game.isLoading)
                     Button("リンクで対戦") { chooseMore(.challenge) }.disabled(game.isLoading)
+                    VStack(spacing: 6) {
+                        Button { chooseMore(.letter) } label: {
+                            Label("一筆の手紙", systemImage: "envelope")
+                        }
+                        Text("9文字までの言葉を、私からあなたへ。\n手紙の作成・受け取りには通信が必要です。")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                     TimelineView(.periodic(from: .now, by: 60)) { context in progressCard(at: context.date) }
                     if let completionMessage = game.completionMessage { Text(completionMessage) }
                     Button("不具合・感想を送る") {
@@ -409,7 +422,7 @@ struct GameView: View {
 
     private func updateActivity() {
         // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
-        let menu = showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
+        let menu = showsLetter || showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
@@ -1195,5 +1208,33 @@ struct PlayScreenLayout: Layout {
             subviews[index].place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
                                  anchor: .topLeading, proposal: ProposedViewSize(frame.size))
         }
+    }
+}
+
+// Safari keeps the web sharing flow and browser privacy controls intact.
+// Recipients use the same HTTPS page without needing TestFlight or an account.
+private struct PuzzleLetterView: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(onClose: { dismiss() }) }
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let configuration = SFSafariViewController.Configuration()
+        configuration.entersReaderIfAvailable = false
+        let controller = SFSafariViewController(
+            url: URL(string: "https://koheisuzuk25252525.github.io/hitofude/letter.html")!,
+            configuration: configuration
+        )
+        controller.delegate = context.coordinator
+        controller.dismissButtonStyle = .close
+        return controller
+    }
+
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+
+    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+        let onClose: () -> Void
+        init(onClose: @escaping () -> Void) { self.onClose = onClose }
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onClose() }
     }
 }
