@@ -36,14 +36,27 @@ private extension EnvironmentValues {
 struct HitofudeRootView: View {
     @StateObject private var introduction = OnboardingModel(sounds: GameAudio.shared)
     @Environment(\.scenePhase) private var scenePhase
+    @State private var incomingLetter: LetterDestination?
 
     var body: some View {
         Group {
-            if introduction.stage == .done { GameView() }
+            if introduction.stage == .done { GameView(hasExternalLetter: incomingLetter != nil, onComposeLetter: { incomingLetter = .compose }) }
             else { IntroductionView(model: introduction) }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            introduction.setActive(phase == .active)
+            introduction.setActive(phase == .active && incomingLetter == nil)
+        }
+        .onOpenURL { url in
+            if let destination = LetterDestination(url: url) { incomingLetter = destination }
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL, let destination = LetterDestination(url: url) { incomingLetter = destination }
+        }
+        .onChange(of: incomingLetter?.id) { _, _ in
+            introduction.setActive(scenePhase == .active && incomingLetter == nil)
+        }
+        .sheet(item: $incomingLetter) { destination in
+            PuzzleLetterView(url: destination.webURL).id(destination.id)
         }
     }
 }
@@ -143,13 +156,14 @@ private struct IntroductionView: View {
 }
 
 struct GameView: View {
+    var hasExternalLetter = false
+    var onComposeLetter: () -> Void = {}
     @StateObject private var game = GameModel(analytics: PlayAnalytics.shared, sounds: GameAudio.shared)
     @StateObject private var rewardedHints = RewardedHints()
     @State private var showsRewardOffer = false
     @ObservedObject private var audio = GameAudio.shared
     @State private var showsAnalytics = false
     @State private var showsFeedback = false
-    @State private var showsLetter = false
     @State private var feedbackContext = ""
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -260,8 +274,7 @@ struct GameView: View {
         .onChange(of: showsFeedback) { _, _ in updateActivity() }
         .sheet(isPresented: $showsAnalytics) { AnalyticsSettingsView(analytics: PlayAnalytics.shared) }
         .sheet(isPresented: $showsFeedback) { FeedbackView(context: feedbackContext) }
-        .onChange(of: showsLetter) { _, _ in updateActivity() }
-        .sheet(isPresented: $showsLetter, onDismiss: updateActivity) { PuzzleLetterView() }
+        .onChange(of: hasExternalLetter) { _, _ in updateActivity() }
         .sheet(isPresented: $showsProgress) {
             ProgressCalendarView(game: game)
         }
@@ -364,7 +377,7 @@ struct GameView: View {
     private func openPendingDestination() {
         let destination = pendingDestination
         switch destination {
-        case .letter: showsLetter = true
+        case .letter: onComposeLetter()
         case .feedback: showsFeedback = true
         case .analytics: showsAnalytics = true
         case .adPrivacy: rewardedHints.showPrivacyOptions()
@@ -427,7 +440,7 @@ struct GameView: View {
                         Button { chooseMore(.letter) } label: {
                             Label("一筆の手紙", systemImage: "envelope")
                         }
-                        Text("9文字までの言葉を、私からあなたへ。\n手紙の作成・受け取りには通信が必要です。")
+                        Text("伝えたい言葉を、私からあなたへ。\n手紙の作成・受け取りには通信が必要です。")
                             .font(.caption).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -436,7 +449,7 @@ struct GameView: View {
 
     private func updateActivity() {
         // Results only appear after finish() has frozen the clock. Do not interrupt the clear sound.
-        let menu = showsLetter || showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
+        let menu = hasExternalLetter || showsHelp || showsChallenge || showsProgress || showsAnalytics || showsFeedback || showsMore || pendingDestination != nil || showsRewardOffer || rewardedHints.isBusy || rewardedHints.error != nil
         game.setActive(scenePhase == .active && !menu, reason: scenePhase != .active ? "background" : "menu")
     }
 
@@ -1228,6 +1241,7 @@ struct PlayScreenLayout: Layout {
 // Safari keeps the web sharing flow and browser privacy controls intact.
 // Recipients use the same HTTPS page without needing TestFlight or an account.
 private struct PuzzleLetterView: UIViewControllerRepresentable {
+    var url = URL(string: "https://koheisuzuk25252525.github.io/hitofude/letter.html?inApp=1")!
     @Environment(\.dismiss) private var dismiss
 
     func makeCoordinator() -> Coordinator { Coordinator(onClose: { dismiss() }) }
@@ -1236,7 +1250,7 @@ private struct PuzzleLetterView: UIViewControllerRepresentable {
         let configuration = SFSafariViewController.Configuration()
         configuration.entersReaderIfAvailable = false
         let controller = SFSafariViewController(
-            url: URL(string: "https://koheisuzuk25252525.github.io/hitofude/letter.html")!,
+            url: url,
             configuration: configuration
         )
         controller.delegate = context.coordinator

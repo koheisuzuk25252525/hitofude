@@ -278,3 +278,37 @@ enum PuzzleNotation {
             .replacingOccurrences(of: "1のマスから", with: "Aのマスから")
     }
 }
+
+
+/// Accept only our letter route and bounded, validated message payloads.
+struct LetterDestination: Identifiable {
+    let id = UUID()
+    let webURL: URL
+    static var compose: LetterDestination {
+        LetterDestination(webURL: URL(string: "https://koheisuzuk25252525.github.io/hitofude/letter.html?inApp=1")!)
+    }
+    private init(webURL: URL) { self.webURL = webURL }
+
+    init?(url: URL) {
+        let isWeb = url.scheme == "https" && url.host == "koheisuzuk25252525.github.io" && url.path == "/hitofude/letter.html" && url.port == nil
+        let isApp = url.scheme == "hitofude" && url.host == "letter" && (url.path.isEmpty || url.path == "/") && url.port == nil
+        guard (isWeb || isApp), url.user == nil, url.password == nil,
+              let fragment = url.fragment, fragment.hasPrefix("letter="), fragment.utf8.count <= 8191 else { return nil }
+        let encoded = String(fragment.dropFirst(7))
+        guard !encoded.isEmpty, encoded.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { return nil }
+        var base64 = encoded.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+        struct Payload: Decodable { let v: Int; let text: String; let from: String; let puzzle: Int }
+        guard let data = Data(base64Encoded: base64), let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              [1, 2].contains(payload.v), (0...3).contains(payload.puzzle),
+              !payload.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              payload.text.utf16.count <= 6000, payload.v == 2 || payload.text.count <= 9,
+              payload.from.unicodeScalars.count <= 20,
+              !(payload.text + payload.from).unicodeScalars.contains(where: { $0.value < 32 && $0.value != 9 || $0.value == 127 }) else { return nil }
+        var target = URLComponents(string: "https://koheisuzuk25252525.github.io/hitofude/letter.html")!
+        target.queryItems = [URLQueryItem(name: "inApp", value: "1")]
+        target.fragment = fragment
+        guard let targetURL = target.url else { return nil }
+        webURL = targetURL
+    }
+}
