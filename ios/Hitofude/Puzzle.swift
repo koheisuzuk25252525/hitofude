@@ -14,6 +14,16 @@ struct Cell: Codable, Hashable, Sendable {
 struct BoardTrace {
     private var previous: CGPoint?
     mutating func reset() { previous = nil }
+    /// UIKit may deliver several historical samples with one event. Keep their corners.
+    mutating func cells(samples: [CGPoint], width: CGFloat, size: Int) -> [Cell] {
+        var result: [Cell] = []
+        for point in samples {
+            for cell in cells(to: point, width: width, size: size) {
+                if result.last != cell { result.append(cell) }
+            }
+        }
+        return result
+    }
     mutating func cells(to point: CGPoint, width: CGFloat, size: Int) -> [Cell] {
         guard width.isFinite, width > 0, size > 0,
               point.x.isFinite, point.y.isFinite,

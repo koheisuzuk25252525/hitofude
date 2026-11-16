@@ -5,6 +5,96 @@ import SwiftUI
 @testable import Hitofude
 
 final class HitofudeTests: XCTestCase {
+    func testCoalescedTouchHistoryPreservesFastCornersAndBacktracking() {
+        var trace = BoardTrace()
+        let corner = trace.cells(samples: [CGPoint(x: 5, y: 5), CGPoint(x: 35, y: 5), CGPoint(x: 35, y: 35)], width: 40, size: 4)
+        XCTAssertEqual(corner, [Cell(row: 0, column: 0), Cell(row: 0, column: 1), Cell(row: 0, column: 2),
+                                Cell(row: 0, column: 3), Cell(row: 1, column: 3), Cell(row: 2, column: 3), Cell(row: 3, column: 3)])
+        let reverse = trace.cells(samples: [CGPoint(x: 35, y: 25), CGPoint(x: 35, y: 5), CGPoint(x: 15, y: 5)], width: 40, size: 4)
+        XCTAssertEqual(reverse, [Cell(row: 3, column: 3), Cell(row: 2, column: 3), Cell(row: 1, column: 3),
+                                 Cell(row: 0, column: 3), Cell(row: 0, column: 2), Cell(row: 0, column: 1)])
+        trace.reset()
+        let outside = trace.cells(samples: [CGPoint(x: 5, y: 5), CGPoint(x: -5, y: 5), CGPoint(x: 35, y: 35)], width: 40, size: 4)
+        XCTAssertEqual(outside, [Cell(row: 0, column: 0), Cell(row: 3, column: 3)]) // No invented bridge.
+    }
+
+    func testQueuedAudioRejectsNotesOlderThanStopOrNewerPlayback() {
+        var gate = SoundPlaybackGate()
+        XCTAssertTrue(gate.accept(sequence: 1)) // First note.
+        XCTAssertTrue(gate.accept(sequence: 4)) // Mute/background stop overtakes queued notes.
+        XCTAssertFalse(gate.accept(sequence: 2))
+        XCTAssertFalse(gate.accept(sequence: 3))
+        XCTAssertTrue(gate.accept(sequence: 6)) // New playback after resume.
+        XCTAssertFalse(gate.accept(sequence: 5)) // Old stop must not silence new playback.
+        XCTAssertFalse(gate.accept(sequence: 6))
+    }
+
+    @MainActor
+    func testFastInputBatchSavesOnceAndRestoresEveryAcceptedCell() async throws {
+        let name = "hitofude-batch-tests-\(UUID())"
+        let defaults = try XCTUnwrap(CountingSessionDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let sound = TestGameSounds()
+        let game = GameModel(defaults: defaults, sounds: sound)
+        await game.load(.tutorial)
+        let writes = defaults.sessionWrites
+        game.trace(Array(Puzzle.tutorial.path.prefix(6)))
+        XCTAssertEqual(game.route, Array(Puzzle.tutorial.path.prefix(6)))
+        XCTAssertEqual(defaults.sessionWrites, writes + 1)
+        XCTAssertEqual(sound.events, [.step(index: 5, total: 16)])
+        let restored = GameModel(defaults: defaults)
+        await restored.startInitialGame()
+        XCTAssertEqual(restored.route, game.route)
+        // Duplicate samples do not write. Backtracking still persists within this sample.
+        let afterRestore = defaults.sessionWrites
+        game.trace([Puzzle.tutorial.path[5], Puzzle.tutorial.path[5]])
+        XCTAssertEqual(defaults.sessionWrites, afterRestore)
+        game.trace([Puzzle.tutorial.path[4], Puzzle.tutorial.path[3]])
+        XCTAssertEqual(game.route, Array(Puzzle.tutorial.path.prefix(4)))
+        XCTAssertEqual(defaults.sessionWrites, afterRestore + 1)
+        game.trace(Array(Puzzle.tutorial.path.dropFirst(4)))
+        XCTAssertTrue(game.isFinished)
+        XCTAssertEqual(sound.events, [.step(index: 5, total: 16), .clear])
+        XCTAssertEqual(game.route, Puzzle.tutorial.path)
+        XCTAssertEqual(defaults.sessionWrites, afterRestore + 2)
+    }
+
+    @MainActor
+    func testCompletionPanelFitsAllActionsWithoutScrollingOnPortraitPhones() {
+        for width in [CGFloat(296), 351, 366, 406] {
+            for isChallenge in [false, true] {
+                let panel = CompletionPanel(
+                    summary: "むずかしい  12:34", message: "今月10問達成！「夜空」の色が使えるようになったよ",
+                    verdict: isChallenge ? "あなたの勝ち！" : nil,
+                    challengeURL: URL(string: "https://example.com/#c-h-1-754"),
+                    challengeMessage: "対戦しよう", shareText: "結果", next: {}, retry: {}, calendar: {}, dismiss: {}
+                )
+                // Measure ALL content at its natural height; a clipped/scrolling viewport cannot pass.
+                let host = UIHostingController(rootView: panel.fullContent)
+                let size = host.sizeThatFits(in: CGSize(width: width - 32, height: 2000))
+                XCTAssertLessThanOrEqual(size.width, width - 32 + 1)
+                XCTAssertLessThanOrEqual(size.height + 32, 544, "All result actions must fit: width \(width), challenge \(isChallenge)")
+                XCTAssertGreaterThan(size.height, 200)
+            }
+        }
+    }
+
+    @MainActor
+    func testCompletionPanelUsesBoundedFallbackForLargeTextAndLandscape() {
+        let panel = CompletionPanel(
+            summary: "ふつう  0:23", message: "自己ベストを更新！", verdict: nil,
+            challengeURL: URL(string: "https://example.com/#c-m-1-23"), challengeMessage: "挑戦", shareText: "結果",
+            next: {}, retry: {}, calendar: {}, dismiss: {}
+        )
+        for typeSize in [DynamicTypeSize.large, .accessibility3] {
+            let host = UIHostingController(rootView: panel.environment(\.dynamicTypeSize, typeSize))
+            let size = host.sizeThatFits(in: CGSize(width: 351, height: 320))
+            XCTAssertLessThanOrEqual(size.width, 352)
+            XCTAssertLessThanOrEqual(size.height, 321)
+            XCTAssertGreaterThan(size.height, 44)
+        }
+    }
+
     func testPlayScreenReservesActionsAndFitsBoardOnPhoneSizes() {
         let flexible = PlayScreenGeometry(width: .infinity, height: .infinity, headerHeight: 220, footerHeight: 94)
         XCTAssertTrue(flexible.size.width.isFinite)
@@ -839,7 +929,7 @@ private final class TestPlayRecorder: PlayEventRecording {
 private final class TestSoundOutput: SoundOutput {
     var playCount = 0
     var stopCount = 0
-    func play(_ data: Data) { playCount += 1 }
+    func play(_ sound: GameSound) { playCount += 1 }
     func stop() { stopCount += 1 }
 }
 
@@ -849,4 +939,12 @@ private final class TestGameSounds: GameSoundPlaying {
     var stops = 0
     func play(_ sound: GameSound) { events.append(sound) }
     func stop() { stops += 1 }
+}
+
+private final class CountingSessionDefaults: UserDefaults, @unchecked Sendable {
+    var sessionWrites = 0
+    override func set(_ value: Any?, forKey defaultName: String) {
+        if defaultName == "hitofude.session.v1" { sessionWrites += 1 }
+        super.set(value, forKey: defaultName)
+    }
 }
