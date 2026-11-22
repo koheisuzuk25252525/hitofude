@@ -40,6 +40,7 @@ print(runtime['version'])
 PY
 capture_type="$(sed -n '1p' "$capture_output/device-choice.txt")"
 capture_runtime="$(sed -n '2p' "$capture_output/device-choice.txt")"
+echo "::notice title=Native capture device::$(sed -n '3p' "$capture_output/device-choice.txt"), iOS $(sed -n '4p' "$capture_output/device-choice.txt") ($capture_family)."
 capture_device="$(xcrun simctl create "Hitofude 1.0-6 Release Capture $capture_family" "$capture_type" "$capture_runtime")"
 printf '%s\n' "$capture_device" > "$capture_output/device-uuid.txt"
 trap 'xcrun simctl shutdown "$capture_device" >/dev/null 2>&1 || true; xcrun simctl delete "$capture_device" >/dev/null 2>&1 || true' EXIT
@@ -77,6 +78,9 @@ xcodebuild -project ios/Hitofude.xcodeproj -scheme ReleaseCapture \
   -configuration Release -destination "$capture_destination" \
   -derivedDataPath "$capture_derived" -parallel-testing-enabled NO \
   -maximum-concurrent-test-simulator-destinations 1 \
+  -test-timeouts-enabled YES \
+  -default-test-execution-time-allowance 180 \
+  -maximum-test-execution-time-allowance 180 \
   -resultBundlePath "$capture_output/Capture.xcresult" \
   CODE_SIGNING_ALLOWED=NO test-without-building 2>&1 | tee "$capture_output/test.log"
 capture_test_status=${PIPESTATUS[0]}
