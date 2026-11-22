@@ -1,0 +1,58 @@
+import XCTest
+
+final class ReleaseCaptureUITests: XCTestCase {
+    @MainActor
+    func testGameplayCompletionAndNextPuzzle() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication(bundleIdentifier: "com.koheisuzuk25252525.hitofude")
+        app.launchArguments = ["-AppleLanguages", "(ja)", "-AppleLocale", "ja_JP"]
+        app.launch()
+        let selector = app.descendants(matching: .any).matching(identifier: "difficulty-selector").firstMatch
+        XCTAssertTrue(selector.waitForExistence(timeout: 30), "The native game must open after restoring the fixture")
+
+        let remaining: [(Int, Int)] = [
+            __REMAINING_CELLS__
+        ]
+        let first = remaining[0]
+        let firstCell = cell(first.0, first.1, in: app)
+        XCTAssertTrue(firstCell.waitForExistence(timeout: 20))
+        XCTAssertTrue(firstCell.isHittable)
+        capture("01-gameplay")
+
+        for (row, column) in remaining {
+            let next = cell(row, column, in: app)
+            XCTAssertTrue(next.waitForExistence(timeout: 5), "Missing cell \(row),\(column)")
+            XCTAssertTrue(next.isHittable, "Cell \(row),\(column) must remain reachable")
+            next.tap()
+        }
+
+        XCTAssertTrue(app.staticTexts["ひと筆、完成！"].waitForExistence(timeout: 15), "Actual gameplay must trigger the completion panel")
+        let nextPuzzle = app.buttons["completion-next-puzzle"]
+        XCTAssertTrue(nextPuzzle.waitForExistence(timeout: 5))
+        XCTAssertTrue(nextPuzzle.isHittable)
+        XCTAssertTrue(app.buttons["今日はここまで"].isHittable)
+        // Allow the shipping completion-path animation to finish before capturing.
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        capture("02-completion")
+
+        nextPuzzle.tap()
+        XCTAssertTrue(selector.waitForExistence(timeout: 20))
+        XCTAssertFalse(app.staticTexts["ひと筆、完成！"].exists)
+        capture("03-next-puzzle")
+        app.terminate()
+    }
+
+    @MainActor
+    private func cell(_ row: Int, _ column: Int, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(row)行\(column)列、")).firstMatch
+    }
+
+    @MainActor
+    private func capture(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}

@@ -1,0 +1,3 @@
+PASS letter Unicode boundaries, untrusted payload validation, and all four uniquely solvable boards
+PASS adaptive sizes, path validity, unique solutions, and version 1 compatibility
+PASS seeded difficulty variety, independent uniqueness, long-letter boundaries, and invalid difficulty payloads

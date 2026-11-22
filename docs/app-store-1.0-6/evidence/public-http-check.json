@@ -1,0 +1,22 @@
+[
+  {
+    "url": "https://koheisuzuk25252525.github.io/hitofude/privacy.html",
+    "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "url": "https://koheisuzuk25252525.github.io/hitofude/support.html",
+    "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "url": "https://koheisuzuk25252525.github.io/hitofude/letter.html",
+    "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "url": "https://koheisuzuk25252525.github.io/app-ads.txt",
+    "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  },
+  {
+    "url": "https://koheisuzuk25252525.github.io/.well-known/apple-app-site-association",
+    "error": "<urlopen error Tunnel connection failed: 403 Forbidden>"
+  }
+]

@@ -1,0 +1,63 @@
+ok existing stored preferences and best record preserved
+ok 375px light: no clipping or horizontal overflow
+ok 375px dark: no clipping or horizontal overflow
+ok 390px light: no clipping or horizontal overflow
+ok 390px dark: no clipping or horizontal overflow
+ok 430px light: no clipping or horizontal overflow
+ok 430px dark: no clipping or horizontal overflow
+ok compact instructions target only the board instructions
+ok fast single move includes all four cells
+ok fast reverse row respects numbered clues
+ok tutorial can finish through actual touch input
+ok interpolation does not invent diagonal moves
+ok leaving board does not bridge a phantom path
+ok fast backwards drag undoes each intermediate step
+ok coalesced corner samples retain the actual turn and cancel releases input
+ok touch tracing locks page without moving the board
+ok touchmove cancels browser panning
+ok touch end restores styles and prior scroll offset
+ok cancel releases scroll lock and input state
+ok blur releases scroll lock and input state
+ok new-game releases scroll lock and input state
+ok touchmove outside a game gesture is not cancelled
+ok document cannot scroll while internal surface remains scrollable
+ok voice always uses Japanese and respects off setting
+ok completion persists exact milliseconds
+ok four completion buttons form two readable rows on a small phone
+ok native share receives a frozen-time invitation and challenge URL
+ok unsupported share copies only the challenge URL
+ok cancelled share does not copy anything
+ok failed share gracefully copies the challenge URL
+ok explicit copy-link button copies the challenge URL
+ok missing Clipboard API uses textarea fallback and cleans up
+ok denied Clipboard API and failed legacy copy show failure without leaving textarea
+ok ordinary result copy stays compatible
+ok challenge finish switches to reply button
+ok challenge reply is a short match summary without URL or emoji grid
+ok challenge result uses text-only native share
+ok unsupported challenge reply copies the same readable text
+ok cancelled result share does not copy anything
+ok failed result share falls back to clear text
+ok shared match result stays frozen after a day
+ok daily date belongs to seed and stored daily record uses frozen result
+ok ordinary daily result remains copyable
+ok new game resets frozen result
+ok credits are hidden until configured
+ok configured credits use text and HTTPS links only
+ok Worker error: recoverable UI, no spinner or stale board
+ok Worker error: terminated
+ok Worker error: retry keeps original seed and mode
+ok Worker messageerror: recoverable UI, no spinner or stale board
+ok Worker messageerror: terminated
+ok Worker messageerror: retry keeps original seed and mode
+ok Worker constructor: recoverable UI, no spinner or stale board
+ok Worker constructor: retry keeps original seed and mode
+ok Worker timeout: recoverable UI, no spinner or stale board
+ok Worker timeout: terminated
+ok Worker timeout: retry keeps original seed and mode
+ok superseded generation cannot overwrite newer game or expose error
+ok legacy challenge URL loads expected opponent and seed
+ok legacy daily data and tutorial flag survived reload
+ok OG image resolves and metadata points to canonical HTTPS PNG
+ok no uncaught browser exceptions
+PASS 62 browser regression checks (Chromium; iPhone Safari device testing remains required)

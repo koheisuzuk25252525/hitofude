@@ -1,0 +1,60 @@
+ok Unicode round trip
+ok invalid links rejected
+ok message limits enforced
+ok ten characters can be sent
+ok sealed preview has no message in reveal element
+ok endpoints are labelled before solving
+ok cannot start on wrong cell
+ok fast touch traverses intermediate squares
+ok complete letter with real touch gestures
+ok letters appear on path between endpoints
+ok keyboard activation completes and reveals
+ok preview returns to retained draft
+ok share payload excludes message from preview text
+ok share cancellation does not expose fallback
+ok unsupported share provides a link
+ok copy preserves full payload
+ok clipboard denied selects link for manual copy
+ok received message not rendered before opening
+ok 320px no overflow
+ok 390px no overflow
+ok 430px no overflow
+ok dark mode uses a dark surface
+ok reduced motion disables animation
+ok skip reveals literal text safely
+ok recipient starts a fresh letter without old hash
+ok bad link shows recovery instead of an empty puzzle
+ok app link retains message payload
+ok no invented store link
+ok unsafe install URL hidden
+ok in-app page suppresses recursive app opening
+ok 1 characters all reach recipient
+ok 1 character board fits phone width
+ok 10 characters all reach recipient
+ok 10 character board fits phone width
+ok 30 characters all reach recipient
+ok 30 character board fits phone width
+ok 70 characters all reach recipient
+ok 70 character board fits phone width
+ok normal is the default difficulty
+ok easy preview size and label
+ok easy recipient gets exact preview board
+ok easy app link preserves chosen difficulty
+ok easy cells have equal heights
+ok easy fits narrow phone
+ok easy reveals the complete message
+ok normal preview size and label
+ok normal recipient gets exact preview board
+ok normal app link preserves chosen difficulty
+ok normal cells have equal heights
+ok normal fits narrow phone
+ok normal reveals the complete message
+ok hard preview size and label
+ok hard recipient gets exact preview board
+ok hard app link preserves chosen difficulty
+ok hard cells have equal heights
+ok hard fits narrow phone
+ok hard reveals the complete message
+ok another preview preserves words and changes seed
+ok no uncaught browser errors
+PASS 59 letter checks (Chromium; real iPhone sharing remains to be tested)

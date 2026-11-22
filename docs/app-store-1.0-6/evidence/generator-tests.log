@@ -1,0 +1,8 @@
+ok 5x5 easy
+ok 6x6 medium
+ok 7x7 hard
+ok 8x8 hard
+ok solver: ambiguous puzzle
+ok solver: impossible puzzle
+ok solver: unique puzzle
+ok solver: missing endpoint

@@ -1,0 +1,30 @@
+Hitofude 1.0 (6) — App Review notes
+
+No account or sign-in is required to play. No review account is needed.
+The main puzzle game is native and generates and saves puzzles on the device; it can be played offline. The optional “一筆の手紙” (Puzzle Letter) feature opens a web page in an in-app Safari view.
+
+FIRST LAUNCH
+1. Connect the three cells from “1” to “3”, then tap “次は、曲がってみよう”.
+2. Complete the 4×4 tutorial, then tap “ヒトフデをはじめる”. Both tutorials support tapping individual cells in order as well as tracing.
+3. In the main game, each number indicates the position at which that cell must be visited. Visit every cell once, including unnumbered cells, moving horizontally or vertically.
+4. Select difficulty above the board. On completion, “もう一問” starts another puzzle; “今日はここまで” returns to the completed board.
+
+OPTIONAL REWARDED HINTS
+Each puzzle has three regular hints. Tap “ヒント” and move to the indicated cell to use the next hint. Repeated taps while the same hint is visible do not consume additional hints. When all three hints have been used, the button changes to “道案内”.
+Tap “道案内”, then “広告を見る” to request an ad. Google UMP shows a consent form when required before an ad is requested. Earning the ad reward unlocks guidance for up to six cells toward the next numbered clue. Watching an ad is optional.
+Ads require a network connection. Leaving before earning the reward, or an ad load failure, does not grant guidance. Previously unlocked guidance can be replayed without another ad.
+Development and TestFlight installations use Google test ads. Production ads are requested only in a verified production distribution environment.
+
+PUZZLE LETTER
+1. On the main game screen, tap the top-right “…” menu, then “一筆の手紙”. This feature requires a network connection.
+2. Enter a message, such as “いつもありがとう”, in “届けたい言葉”. Tap “受け取り方を試す” to preview the recipient experience.
+3. Start at “1” and complete the puzzle to reveal the message. “解かずに手紙を読む” also reveals it without solving the puzzle.
+4. Return with “編集に戻る”, then tap “この一通を送る” to share the link to a destination chosen by the user. Recipients can open it in a browser without installing the app.
+Anyone with the shared link can read the message. The compose screen explains this and that a sent message cannot be edited or revoked. The app has no public post feed, user directory, or inbox.
+Closing the in-app Safari view returns to the original puzzle.
+
+RECORDS AND SETTINGS
+“…” → “今月のひとふで” opens the completion calendar.
+“…” → “プレイ状況の計測” provides optional play analytics, off by default. Opting in is not required to play.
+“…” → “広告のプライバシー設定” opens available ad privacy choices. In regions where no choices are currently available, the app displays an explanatory message instead.
+The “?” help screen links to the privacy policy and support page.

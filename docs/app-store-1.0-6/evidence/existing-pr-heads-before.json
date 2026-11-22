@@ -1,0 +1,62 @@
+{
+  "33": {
+    "head": "5086f9a32e062f8f2f138e15190009c52e251acb",
+    "base": "ci/xcode-cloud-build6"
+  },
+  "32": {
+    "head": "a04cd41237d4d74b382222aec60ad6c970fda8e2",
+    "base": "feat/ios-letter-links"
+  },
+  "27": {
+    "head": "2d70c11e97d763871f8b981df93115c1d77144f8",
+    "base": "feat/ios-puzzle-letter"
+  },
+  "26": {
+    "head": "3585301d1fef5dd923000b31ca1c40bac638704a",
+    "base": "feat/ios-letter-preview"
+  },
+  "24": {
+    "head": "aa657fc04b2cb781da6f02375954325d535d5a65",
+    "base": "feat/ios-return-welcome"
+  },
+  "23": {
+    "head": "85b44df58408bce6a992cc11ae52e6ea5f9b3636",
+    "base": "feat/ios-ad-consent"
+  },
+  "21": {
+    "head": "c089e5a343643939f22744b8cbec793fb37f9dbb",
+    "base": "fix/ios-two-stage-tutorial"
+  },
+  "20": {
+    "head": "7706098208e9a2b768b31013c7daa7d397810df3",
+    "base": "fix/ios-play-guidance"
+  },
+  "19": {
+    "head": "0388f1f8460413ade7866a0068121412a19e6bc4",
+    "base": "fix/ios-rewarded-hints"
+  },
+  "18": {
+    "head": "278940d3e472ffd9f2bd282443e37238703323fd",
+    "base": "fix/ios-prepared-puzzles"
+  },
+  "17": {
+    "head": "f8d7b89da770ab5340b13eecf7715b7390294633",
+    "base": "fix/ios-hint-and-difficulty"
+  },
+  "16": {
+    "head": "d5aa5e2032f1162e8146b2872c0d40034eae5de4",
+    "base": "fix/ios-completion-overlay"
+  },
+  "15": {
+    "head": "72c0366002c3f0449cd5666cc2f06ed927a7560f",
+    "base": "main"
+  },
+  "7": {
+    "head": "c2799cda36bc4bf4e5db170c31cce4f80f85592d",
+    "base": "main"
+  },
+  "6": {
+    "head": "e4bb37e944e74ae7f5df9c7bb66a677951476ef1",
+    "base": "main"
+  }
+}

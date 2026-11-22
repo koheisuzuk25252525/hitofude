@@ -1,99 +1,72 @@
-name: iOS tests
+name: App Store screenshot preparation (1.0 build 6)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main, codex/hitofude-swiftui-ios]
-    paths: ['ios/**', 'tests/native-generator.test.mjs', '.github/workflows/ios.yml']
-  pull_request:
-    paths: ['ios/**', 'tests/native-generator.test.mjs', '.github/workflows/ios.yml']
 
 permissions:
   contents: read
 
-concurrency:
-  group: ios-tests-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  test:
+  capture:
+    name: Native screenshots - ${{ matrix.family }}
     runs-on: macos-15
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [iphone, ipad]
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out preparation tools
+        uses: actions/checkout@v4
+        with:
+          path: preparation
+          persist-credentials: false
+      - name: Check out the unchanged release candidate
+        uses: actions/checkout@v4
+        with:
+          ref: a04cd41237d4d74b382222aec60ad6c970fda8e2
+          path: source
+          persist-credentials: false
       - uses: actions/setup-node@v4
-        with: { node-version: 24 }
-      - name: Check Web and native puzzle compatibility
-        run: node tests/native-generator.test.mjs
-      - name: Select an installed iPhone Simulator
+        with:
+          node-version: 24
+      - name: Capture real native Simulator screens
+        env:
+          CAPTURE_FAMILY: ${{ matrix.family }}
         run: |
-          xcodebuild -version
-          echo "HITOFUDE_SIMULATOR_ARCH=$(uname -m)" >> "$GITHUB_ENV"
-          xcrun simctl list devices available --json > "$RUNNER_TEMP/simulators.json"
-          python3 - <<'PY' >> "$GITHUB_ENV"
-          import json, os
-          with open(os.path.join(os.environ['RUNNER_TEMP'], 'simulators.json')) as file:
-              data = json.load(file)
-          devices = [device for runtime, devices in data['devices'].items()
-                     if '.iOS-' in runtime for device in devices
-                     if device['name'].startswith('iPhone') and device.get('isAvailable')]
-          if not devices:
-              raise SystemExit('No installed iPhone Simulator found')
-          print('HITOFUDE_SIMULATOR_ID=' + devices[0]['udid'])
-          PY
-      - name: Build and run XCTest
+          bash preparation/scripts/release-capture/capture.sh \
+            "$GITHUB_WORKSPACE/source" "$CAPTURE_FAMILY" "$GITHUB_WORKSPACE/capture-output"
+      - name: Verify application source remains unchanged
+        if: always()
+        working-directory: source
         run: |
-          set -o pipefail
-          # Surface progress even when the runner's full log download is unavailable.
-          python3 -u - <<'PYMONITOR' &
-          import os, pathlib, time
-          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-test.log'
-          for index in range(8):
-              time.sleep(45)
-              if path.exists():
-                  lines = path.read_text(errors='replace').splitlines()
-                  tail = '\n'.join(line[:500] for line in lines[-4:])
-                  message = tail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  print('::notice title=iOS progress ' + str(index + 1) + '::' + message, flush=True)
-          PYMONITOR
-          progress_pid=$!
-          trap 'kill "$progress_pid" 2>/dev/null || true' EXIT
-          xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
-            -destination "platform=iOS Simulator,id=$HITOFUDE_SIMULATOR_ID,arch=$HITOFUDE_SIMULATOR_ARCH" \
-            -parallel-testing-enabled NO \
-            -resultBundlePath "$RUNNER_TEMP/HitofudeTests.xcresult" \
-            CODE_SIGNING_ALLOWED=NO test 2>&1 | tee "$RUNNER_TEMP/ios-test.log"
-      - name: Build an unsigned Release archive
+          test "$(git rev-parse HEAD)" = a04cd41237d4d74b382222aec60ad6c970fda8e2
+          git diff --exit-code -- ios/Hitofude ios/HitofudeTests ios/Configuration
+      - name: Report capture details
+        if: always()
         run: |
-          set -o pipefail
-          xcodebuild -project ios/Hitofude.xcodeproj -scheme Hitofude \
-            -configuration Release -destination 'generic/platform=iOS' \
-            -archivePath "$RUNNER_TEMP/Hitofude.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO archive 2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
-          test -f "$RUNNER_TEMP/Hitofude.xcarchive/Products/Applications/Hitofude.app/PrivacyInfo.xcprivacy"
-          test -f "$RUNNER_TEMP/Hitofude.xcarchive/Products/Applications/Hitofude.app/Assets.car"
-      - name: Report build errors
-        if: failure()
-        run: |
-          python3 - <<'PY'
-          import os, pathlib
-          for path in pathlib.Path(os.environ['RUNNER_TEMP']).glob('ios-*.log'):
+          python3 - <<'PYREPORT'
+          import pathlib
+          root = pathlib.Path('capture-output')
+          for pattern in ['*dimensions*.json', '*device*.json', '*summary*.json']:
+              for path in root.rglob(pattern):
+                  message = path.read_text(errors='replace')[:3500]
+                  escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print('::notice title=' + path.name + '::' + escaped)
+          for path in root.rglob('*.log'):
               lines = path.read_text(errors='replace').splitlines()
-              warnings = [line[:1200] for line in lines if 'warning:' in line and ('ignoring' in line or 'architecture' in line or 'link' in line)]
-              if warnings:
-                  details = '\n'.join(warnings)[-3500:].replace('%','%25').replace('\n','%0A')
-                  print('::error title=Link warnings::' + details)
-              tail = '\n'.join(line[:1500] for line in lines[-100:])[-30000:]
-              # GitHub truncates each annotation to 4096 characters; show the end first.
-              chunks = [tail[max(0, end - 3500):end] for end in range(len(tail), 0, -3500)]
-              for index, chunk in enumerate(chunks[:9]):
-                  message = chunk.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  print('::error title=' + path.name + ' tail ' + str(index) + '::' + message)
-          PY
-      - name: Save XCTest results
+              useful = [line for line in lines if 'error:' in line or 'failed' in line.lower() or 'executed' in line.lower()]
+              message = '\n'.join(useful[-20:] or lines[-12:])[-3500:]
+              escaped = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::notice title=' + path.name + '::' + escaped)
+          PYREPORT
+      - name: Save screenshots and evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Hitofude-XCTest
-          path: ${{ runner.temp }}/HitofudeTests.xcresult
-          if-no-files-found: ignore
+          name: Hitofude-1.0-6-native-${{ matrix.family }}
+          path: |
+            capture-output/
+            !capture-output/DerivedData/**
+          if-no-files-found: error
+          retention-days: 30

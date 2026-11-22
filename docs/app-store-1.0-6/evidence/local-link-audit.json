@@ -1,0 +1,72 @@
+{
+  "snapshot": "797690efeb9cb375da7f35baf9a58ae5bb595f49",
+  "relative_links_checked": 13,
+  "failures": [],
+  "links": [
+    {
+      "page": "letter.html",
+      "url": "letter.css",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "letter-links.js",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "letter.js",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "./",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "./",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "letter.html",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "privacy.html#letters",
+      "exists": true
+    },
+    {
+      "page": "letter.html",
+      "url": "support.html",
+      "exists": true
+    },
+    {
+      "page": "index.html",
+      "url": "letter.html",
+      "exists": true
+    },
+    {
+      "page": "support.html",
+      "url": "privacy.html",
+      "exists": true
+    },
+    {
+      "page": "support.html",
+      "url": "./",
+      "exists": true
+    },
+    {
+      "page": "privacy.html",
+      "url": "support.html",
+      "exists": true
+    },
+    {
+      "page": "privacy.html",
+      "url": "./",
+      "exists": true
+    }
+  ]
+}
