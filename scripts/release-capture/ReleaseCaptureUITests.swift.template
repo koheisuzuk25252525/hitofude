@@ -17,14 +17,16 @@ final class ReleaseCaptureUITests: XCTestCase {
         let first = remaining[0]
         let firstCell = cell(first.0, first.1, in: app)
         XCTAssertTrue(firstCell.waitForExistence(timeout: 20))
-        XCTAssertTrue(firstCell.isHittable)
+        XCTAssertFalse(firstCell.frame.isEmpty)
         capture("01-gameplay")
 
         for (row, column) in remaining {
             let next = cell(row, column, in: app)
             XCTAssertTrue(next.waitForExistence(timeout: 5), "Missing cell \(row),\(column)")
-            XCTAssertTrue(next.isHittable, "Cell \(row),\(column) must remain reachable")
-            next.tap()
+            XCTAssertFalse(next.frame.isEmpty, "Cell \(row),\(column) must have screen geometry")
+            // The shipping UIKit touch surface overlays the accessible SwiftUI
+            // buttons. Deliver a real touch at the cell center, as a player does.
+            next.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
 
         XCTAssertTrue(app.staticTexts["ひと筆、完成！"].waitForExistence(timeout: 15), "Actual gameplay must trigger the completion panel")

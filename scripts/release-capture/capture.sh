@@ -47,13 +47,16 @@ capture_derived="$capture_output/DerivedData"
 capture_destination="platform=iOS Simulator,id=$capture_device,arch=$(uname -m)"
 
 cd "$capture_source"
+echo "::notice title=Native capture phase::Building the unchanged release application and temporary UI-test target ($capture_family)."
 xcodebuild -project ios/Hitofude.xcodeproj -scheme ReleaseCapture \
   -configuration Release -destination "$capture_destination" \
   -derivedDataPath "$capture_derived" CODE_SIGNING_ALLOWED=NO \
   build-for-testing 2>&1 | tee "$capture_output/build.log"
+echo "::notice title=Native capture phase::Release Simulator build succeeded ($capture_family). Preparing the dedicated capture device."
 
 xcrun simctl boot "$capture_device"
 xcrun simctl bootstatus "$capture_device" -b
+echo "::notice title=Native capture phase::Dedicated Simulator booted ($capture_family). Installing version 1.0 build 6."
 capture_app="$capture_derived/Build/Products/Release-iphonesimulator/Hitofude.app"
 test -d "$capture_app"
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$capture_app/Info.plist")" = "1.0"
@@ -68,6 +71,7 @@ xcrun simctl bootstatus "$capture_device" -b
 xcrun simctl ui "$capture_device" appearance light
 xcrun simctl status_bar "$capture_device" override --time '9:41' --dataNetwork wifi --wifiMode active --wifiBars 3 --batteryState charged --batteryLevel 100
 
+echo "::notice title=Native capture phase::Starting real UI taps and screenshot capture ($capture_family)."
 set +e
 xcodebuild -project ios/Hitofude.xcodeproj -scheme ReleaseCapture \
   -configuration Release -destination "$capture_destination" \
@@ -77,6 +81,7 @@ xcodebuild -project ios/Hitofude.xcodeproj -scheme ReleaseCapture \
   CODE_SIGNING_ALLOWED=NO test-without-building 2>&1 | tee "$capture_output/test.log"
 capture_test_status=${PIPESTATUS[0]}
 set -e
+echo "::notice title=Native capture phase::UI test process finished with status $capture_test_status ($capture_family). Exporting actual screenshot attachments."
 
 if test -d "$capture_output/Capture.xcresult"; then
   xcrun xcresulttool export attachments --path "$capture_output/Capture.xcresult" \
