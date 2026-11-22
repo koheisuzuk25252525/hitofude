@@ -1,0 +1,42 @@
+[
+  {
+    "field": "名前",
+    "characters": 4,
+    "limit": 30,
+    "utf8_bytes": 12
+  },
+  {
+    "field": "サブタイトル",
+    "characters": 14,
+    "limit": 30,
+    "utf8_bytes": 42
+  },
+  {
+    "field": "プロモーション用テキスト",
+    "characters": 65,
+    "limit": 170,
+    "utf8_bytes": 195
+  },
+  {
+    "field": "概要・説明文",
+    "characters": 843,
+    "limit": 4000,
+    "utf8_bytes": 2433
+  },
+  {
+    "field": "キーワード",
+    "characters": 24,
+    "limit": 100,
+    "utf8_bytes": 62
+  },
+  {
+    "file": "review-notes-ja.txt",
+    "characters": 1261,
+    "limit": 4000
+  },
+  {
+    "file": "review-notes-en.txt",
+    "characters": 2813,
+    "limit": 4000
+  }
+]

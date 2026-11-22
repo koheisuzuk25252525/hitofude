@@ -2,7 +2,7 @@
 
 確認日：2026年11月22日（日本時間）
 
-この資料は App Store Connect への回答案を作るためのソース確認結果です。管理画面への入力・送信、アプリの再ビルド、既存ブランチ・PR・審査設定の変更は行っていません。
+この資料は App Store Connect への回答案を作るためのソース確認結果です。管理画面への入力・送信、配布用ビルドの差し替え、既存ブランチ・PR・審査設定の変更は行っていません。
 
 ## 対象と証拠の範囲
 
@@ -12,7 +12,7 @@
 | 公開 Web 機能 | GitHub の `main`、`797690efeb9cb375da7f35baf9a58ae5bb595f49` のソース | GitHub Pages 上で同じ内容が配信されているか、ユーザー端末での表示・通信 |
 | 次期開発の警告修正 | `5086f9a` は別ブランチ。提供された画像では Xcode Cloud Build 3 成功・問題なし | 広告ヒントの修正後実機動作。この結果を公開ビルド6の実機確認に代用しない |
 
-GitHub Pages、Google・Firebase の資料ページへの直接アクセスは、この実行環境のネットワークで 403 になりました。GitHub API と raw GitHub のソースは取得できています。以下の SDK データ項目は、取得できたアプリ実装・マニフェスト・既存設計資料と、まだ照合が必要な項目を区別しています。
+GitHub Pages、Google・Firebase の資料ページへの直接アクセスは、この実行環境のネットワークで 403 になりました。GitHub API と raw GitHub のソースは取得できています。追加確認では、各社の公式 Package.swift が指定する `dl.google.com` の SDK 配布物を取得し、チェックサムを確認したうえで iOS 実機用マニフェストを抽出しました。以下では、アプリの実装、SDK供給元の宣言、実際の配布アプリの動作を区別しています。
 
 ## 実装から確認できたこと
 
@@ -33,23 +33,50 @@ GitHub Pages、Google・Firebase の資料ページへの直接アクセスは�
 - [Info.plist（提出候補）](https://github.com/koheisuzuk25252525/hitofude/blob/a04cd41237d4d74b382222aec60ad6c970fda8e2/ios/Hitofude/Info.plist)、[PrivacyInfo.xcprivacy（提出候補）](https://github.com/koheisuzuk25252525/hitofude/blob/a04cd41237d4d74b382222aec60ad6c970fda8e2/ios/Hitofude/Resources/PrivacyInfo.xcprivacy)。
 - [copy-firebase-config.sh（提出候補）](https://github.com/koheisuzuk25252525/hitofude/blob/a04cd41237d4d74b382222aec60ad6c970fda8e2/ios/copy-firebase-config.sh)：所有者の任意設定ファイルをビルド時に同梱する条件。
 
+## 公式 SDK 配布物で追加確認した宣言
+
+公式の版指定 Package.swift からダウンロードURLと SHA-256 を取得しました。4つのZIPは合計約23.4MBで、すべて指定チェックサムと一致しました。ZIPやSDK本体は保存せず、iOS arm64 用の PrivacyInfo.xcprivacy と出典記録だけを [sdk-manifests](sdk-manifests/) に保存しています。
+
+**Google Mobile Ads 12.14.0 のマニフェストでは、デバイスIDの `NSPrivacyCollectedDataTypeTracking` が `true` です。** アプリ独自マニフェストの `false`、`npa=1`、ATT要求なしという実装だけを根拠に、SDKを含む全体で「トラッキングなし」と回答することはできません。一方、SDKの汎用宣言だけで、このアプリが実際にトラッキングしていると断定もできません。ビルド6の集約 Privacy Report と、IDFAなし・非パーソナライズ設定での供給元説明・AdMob設定を照合する点が残ります。この発見だけでATT追加やビルド差替えを自動決定しません。
+
+トップレベルのキーも区別して確認しました。GMA 12.14.0 と UMP 3.1.0 の実機用マニフェストには、**`NSPrivacyTracking` と `NSPrivacyTrackingDomains` の両方がありません**。`false`／空配列が明記されているという意味ではありません。FirebaseCore／FirebaseCoreInternal／FirebaseInstallations の公式ソースには、トップレベル `NSPrivacyTracking = false`、`NSPrivacyTrackingDomains = []` が明記されています。GMAの上記 `true` は個別データ種別DeviceIDに付く宣言です。
+
+| SDK | 供給元マニフェストの宣言 |
+|---|---|
+| Google Mobile Ads 12.14.0 | DeviceID は関連付けあり・トラッキングあり。CoarseLocation／AdvertisingData／ProductInteraction は関連付けあり・トラッキングなし。OtherDiagnosticData／PerformanceData は関連付けなし・トラッキングなし。以上の目的は第三者広告・デベロッパ広告・分析。CrashData は関連付けなし・トラッキングなし・分析目的 |
+| UMP 3.1.0 | CoarseLocation／PerformanceData／ProductInteraction。すべて関連付けなし・トラッキングなし・アプリ機能目的 |
+| FirebaseCore 12.4.0 | 公式ソースのマニフェストは収集データ空、トラッキングなし。UserDefaults `CA92.1` |
+| FirebaseCoreInternal 12.4.0 | 公式ソースのマニフェストは収集データ空、トラッキングなし。UserDefaults `1C8F.1` |
+| FirebaseInstallations 12.4.0 | 公式ソースは OtherDiagnosticData、関連付けなし・トラッキングなし・分析目的 |
+| FirebaseAnalytics／GoogleAppMeasurement 12.4.0 | 公式ZIP内から PrivacyInfo.xcprivacy は見つからなかった。この結果を「Analyticsはデータを収集しない」という証拠にしない。実装・設定・SDK資料・最終Archiveを引き続き照合 |
+
+SDK内の目的は供給元の宣言です。例えば「デベロッパ広告」が書かれているからといって、ヒトフデ運営者が自社広告配信を行っているという事実を作らず、実際に使う構成・処理と照合します。関連付けのある処理とない処理が同じデータ種類に混在する場合、片方だけを見て全体を「関連付けなし」にしません。
+
+同じ検証済み GMA 配布物の `GoogleMobileAds.xcframework/ios-arm64/GoogleMobileAds.framework/Headers/GADRequestConfiguration.h` も読みました。80行付近は publisher first-party ID が初期状態で有効で、設定がセッション間で保存される旨を説明しています。これは「ATTを要求しない＝すべての識別子が無効」ではないことを確認する材料です。ただし、同一アプリ内の識別子の存在だけで Apple の定義上のトラッキングとは断定しません。このヘッダから、DeviceIDのトラッキング宣言がIDFA許可時だけに適用されるという説明までは確認できませんでした。
+
+- [取得元・SHA-256・抽出元パス・解析内容](sdk-manifests/provenance.json)
+- [Google Mobile Ads 12.14.0 の抽出マニフェスト](sdk-manifests/GoogleMobileAds-12.14.0-1.xcprivacy)
+- [UMP 3.1.0 の抽出マニフェスト](sdk-manifests/UserMessagingPlatform-3.1.0-1.xcprivacy)
+- [Google Mobile Ads Package.swift](https://github.com/googleads/swift-package-manager-google-mobile-ads/blob/12.14.0/Package.swift)、[UMP Package.swift](https://github.com/googleads/swift-package-manager-google-user-messaging-platform/blob/3.1.0/Package.swift)、[Firebase Package.swift](https://github.com/firebase/firebase-ios-sdk/blob/12.4.0/Package.swift)、[GoogleAppMeasurement Package.swift](https://github.com/google/GoogleAppMeasurement/blob/12.4.0/Package.swift)。
+
 ## App Store「Appのプライバシー」の回答下書き
 
 **この表をそのまま確定回答として送信しないでください。** 「SDKを使っているから全項目をオン」「非パーソナライズ広告だから全部オフ」のどちらでもなく、アップロード済み Archive のレポートと実際の管理設定を照合して確定します。任意参加の収集も確認対象です。
 
 | データ項目の候補 | 分かっている用途・処理 | ソース上の関連付け／トラッキング | 確定前に確認すること |
 |---|---|---|---|
-| 使用状況データ → 製品の操作 | 計測オン時に開始・ヒント・クリア・中断などを Analytics へ送信。目的は分析 | アプリのマニフェストは「関連付けあり・トラッキングなし」と宣言 | ビルド6の Firebase 設定同梱の有無、Analytics 管理設定。独自イベント以外の SDK 標準処理も確認 |
-| 識別子 → デバイスID | Firebase のインストール識別子などが確認対象。独自の挑戦IDはアカウントIDではない | アプリのマニフェストは分析目的・関連付けあり・トラッキングなし | 広告 SDK が扱う識別子を含めた実際の種類・用途。IDFAを要求しないことと、他の識別子も収集しないことを混同しない |
-| 位置情報 → おおよその位置情報 | Firebase による IP に基づく地域の処理をポリシーが説明。広告・UMP 側の IP 処理も照合対象 | アプリのマニフェストは分析目的・関連付けあり・トラッキングなし | SDK／プロパティ設定ごとの保持・利用。GPS の許可を要求しないことだけで「位置情報なし」としない |
-| 使用状況データ → 広告データ | 任意リワード広告の表示・操作に関するデータを公開ポリシーが説明。第三者広告の目的が確認対象 | アプリ独自マニフェストにはこの項目なし。SDK のマニフェスト・資料との照合が必要 | Google Mobile Ads 12.14.0 のデータ開示、Archive の集約レポート、AdMob 側の配信設定で種類・関連付け・目的を確認 |
-| 診断 → クラッシュ／パフォーマンス／その他診断データ | 公開ポリシーは広告 SDK の診断情報を説明 | アプリ独自マニフェストだけでは分類や関連付けを確定できない | SDK が実際に扱う診断の種類と目的を確認。Crashlytics がないという理由で他 SDK の診断処理もないとしない |
-| その他のデータ等に該当する同意情報 | UMP に地域・同意の更新要求を送る。広告表示を選ぶ前の更新もある | アプリコードだけでは App Store の分類を特定できない | UMP 3.1.0 のデータ処理を資料と Archive のレポートで照合。存在しない「同意情報」専用項目を作らない |
+| 使用状況データ → 製品の操作 | 計測オン時に開始・ヒント・クリア・中断などを Analytics へ送信。SDKではGMAの広告・分析目的、UMPのアプリ機能目的も宣言 | アプリとGMAは関連付けあり・トラッキングなし。UMPは関連付けなし・トラッキングなし | ビルド6の Firebase 設定同梱の有無、Analytics 管理設定。独自イベント以外の SDK 標準処理も確認 |
+| 識別子 → デバイスID | Firebase のインストール識別子などが確認対象。独自の挑戦IDはアカウントIDではない。GMAは第三者広告・デベロッパ広告・分析目的を宣言 | アプリは関連付けあり・トラッキングなし。**GMAは関連付けあり・トラッキングあり**と宣言 | 最終回答を保留する重要項目。広告 SDK が扱う識別子・関連付け・用途と、ヒトフデのIDFAなし／非パーソナライズ構成での処理を供給元資料・管理設定・Archiveで照合 |
+| 位置情報 → おおよその位置情報 | Firebase による IP に基づく地域の処理をポリシーが説明。GMAは広告・分析、UMPはアプリ機能目的を宣言 | アプリ・GMAは関連付けあり。UMPは関連付けなし。3者とも当該種類のトラッキングなしと宣言 | SDK／プロパティ設定ごとの保持・利用。GPS の許可を要求しないことだけで「位置情報なし」としない |
+| 使用状況データ → 広告データ | GMAは第三者広告・デベロッパ広告・分析目的を宣言 | GMAマニフェストは関連付けあり・トラッキングなし | Archive の集約レポート、AdMob 側の配信設定で実際の目的を確認 |
+| 診断 → クラッシュデータ | GMAは分析目的を宣言 | GMAは関連付けなし・トラッキングなし | 最終Archiveとの照合。Crashlytics がないという理由で他 SDK の診断処理もないとしない |
+| 診断 → パフォーマンスデータ | GMAは広告・分析、UMPはアプリ機能目的を宣言 | 両SDKとも関連付けなし・トラッキングなし | 最終Archive・実際のSDK利用と照合 |
+| 診断 → その他診断データ | GMAは広告・分析、FirebaseInstallationsは分析目的を宣言 | 両SDKとも関連付けなし・トラッキングなし | 最終Archive・実際のSDK利用と照合 |
 | ユーザーコンテンツ → カスタマーサポート等 | 利用者が報告文を共有したり GitHub に投稿する。公開サポートページには問い合わせメールもある | 自動の Analytics 送信はない。公開投稿やメールで運営者が受け取る情報とは別 | 実際の問い合わせ運用、Apple の任意開示例外の条件への適合を確認。任意だから必ず申告不要、とは扱わない |
 | ユーザーコンテンツ → 手紙本文、名前 | 下記の Web 機能。本文・任意の名前は URL フラグメントに入り、共有先へ渡る | 確認した Web コードに運営側の本文データベースや計測送信はない | 自社で本文を収集するサービスだと誤記しない。ホスティングのアクセス処理、外部共有先での保存と区別する |
 | 端末内のパズル経路・記録・設定 | アプリ内保存・復元に使用 | 自動の外部送信は確認していない（上記の集計イベントは別） | 端末内処理を、独自のクラウド収集・同期と表記しない |
 
-現在のアプリ独自マニフェストは **DeviceID／ProductInteraction／CoarseLocation の3種類を、分析目的・関連付けあり・トラッキングなしで宣言**しています。Google Mobile Ads 等の全処理をこの3種類だけで網羅したと結論付けることはできません。SDK のマニフェストを集約した Archive の Privacy Report と併せて扱います。
+現在のアプリ独自マニフェストは **DeviceID／ProductInteraction／CoarseLocation の3種類を、分析目的・関連付けあり・トラッキングなしで宣言**しています。今回取得したGMA・UMP・FirebaseInstallationsの宣言を加えると、広告データと診断3種も確認対象になります。GMAのデバイスIDにはトラッキングありの宣言があります。アプリ独自マニフェストだけで回答を確定せず、SDK のマニフェストを集約した実際の Archive の Privacy Report と併せて扱います。
 
 Firebase は 12.4.0 の FirebaseAnalyticsCore と FirebaseCore、Google Mobile Ads は 12.14.0、UMP は 3.1.0 を指定しています。所有者の Firebase 設定ファイルは Git 管理対象外のため、リポジトリのファイル一覧からアップロード済みアプリの同梱有無を判定できません。ビルド6で「プレイ状況の計測」のスイッチが利用可能かを見ると運用確認の手掛かりになりますが、Archive の確認も必要です。
 
@@ -93,7 +120,7 @@ Firebase は 12.4.0 の FirebaseAnalyticsCore と FirebaseCore、Google Mobile A
 
 ## 残る確認（実施済みと混同しない）
 
-1. アップロード済み1.0（6）の Archive の Privacy Report、GoogleService-Info.plist 同梱有無を確認し、SDK開示資料・AdMob／Firebase設定と表を照合する。
+1. 所有者の Mac にあるアップロード済み1.0（6）の Archive から Privacy Report を出し、GoogleService-Info.plist 同梱有無を確認する。AdMob／Firebaseの実設定、SDK開示資料と表を照合する。特にGMAのデバイスIDのトラッキング宣言は未確定のまま最終回答へ転記しない。公開対象ビルド・署名・認証情報を変える作業ではなく、既存配布物と設定の確認で進める。
 2. App Store Connect に入力済みのプライバシー回答、年齢区分、価格・配信地域、掲載内容、審査連絡先と選択ビルドを照合する。ここでは現状を未確認とする。
 3. 実際の公開URLでプライバシー・サポート・手紙ページが開くことを確認する。raw GitHub の取得成功だけでは配信成功と断定しない。
 4. 公開候補1.0（6）の実機で、計測オフ／オン／オフ、広告の完了・報酬取得前の中断・通信失敗、対象地域の同意設定、手紙の送受信を確認する。既に確認した操作は結果を記録し、すべてを無条件に繰り返す必要はない。
