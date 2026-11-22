@@ -2,6 +2,13 @@ name: App Store screenshot preparation (1.0 build 6)
 
 on:
   workflow_dispatch:
+    inputs:
+      devices:
+        description: Simulator device family to capture
+        type: choice
+        options: [all, iphone, ipad]
+        default: all
+        required: true
 
 permissions:
   contents: read
@@ -14,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [iphone, ipad]
+        family: ${{ fromJSON(inputs.devices == 'all' && '["iphone","ipad"]' || format('["{0}"]', inputs.devices)) }}
     steps:
       - name: Check out preparation tools
         uses: actions/checkout@v4
