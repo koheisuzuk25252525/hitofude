@@ -72,6 +72,22 @@ jobs:
             CODE_SIGNING_ALLOWED=NO archive 2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
           test -f "$RUNNER_TEMP/Hitofude.xcarchive/Products/Applications/Hitofude.app/PrivacyInfo.xcprivacy"
           test -f "$RUNNER_TEMP/Hitofude.xcarchive/Products/Applications/Hitofude.app/Assets.car"
+      - name: Verify RewardedHints actor warnings are absent
+        run: |
+          python3 - <<'PYWARNINGS'
+          import os, pathlib, re
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          failures = []
+          for name in ['ios-test.log', 'ios-archive.log']:
+              lines = (root / name).read_text(errors='replace').splitlines()
+              diagnostics = [line for line in lines if re.search(r'RewardedHints\.swift:\d+:\d+: (warning|error):', line) and 'actor' in line.lower()]
+              failures.extend(diagnostics)
+              print(f'{name}: {len(diagnostics)} RewardedHints actor diagnostics')
+          if failures:
+              print('\n'.join(failures))
+              raise SystemExit(1)
+          print('::notice title=RewardedHints actor check::No Main Actor diagnostics in RewardedHints.swift in Simulator tests or Release archive logs. Device ad behavior is not verified by this check.')
+          PYWARNINGS
       - name: Report build errors
         if: failure()
         run: |

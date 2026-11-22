@@ -42,6 +42,25 @@ final class HitofudeTests: XCTestCase {
     }
 
     @MainActor
+    func testInactiveApplicationAfterConsentRefreshDoesNotPresentFormOrGrantReward() async {
+        let consent = TestAdConsent()
+        consent.suspendRefresh = true
+        consent.canRequestAds = true
+        var active = true
+        let hints = RewardedHints(consent: consent, isActive: { active })
+        let finished = expectation(description: "Inactive request completes without an ad")
+        hints.show(reward: { XCTFail("Inactive application must not earn a reward") }, completion: { finished.fulfill() })
+        while consent.resumeRefresh == nil { await Task.yield() }
+        active = false
+        consent.resumeRefresh?.resume(returning: true)
+        await fulfillment(of: [finished], timeout: 2)
+        XCTAssertEqual(consent.formCount, 0)
+        XCTAssertFalse(hints.isBusy)
+        XCTAssertFalse(hints.isLoading)
+        XCTAssertNotNil(hints.error)
+    }
+
+    @MainActor
     func testConsentFormErrorBlocksAdsEvenWhenPreviousConsentAllowedThem() async {
         let consent = TestAdConsent()
         consent.canRequestAds = true
