@@ -38,6 +38,8 @@ final class ReleaseCaptureUITests: XCTestCase {
 
         nextPuzzle.tap()
         XCTAssertTrue(selector.waitForExistence(timeout: 20))
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: selector)
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 20), .completed)
         XCTAssertFalse(app.staticTexts["ひと筆、完成！"].exists)
         capture("03-next-puzzle")
         app.terminate()

@@ -84,19 +84,41 @@ if test -d "$capture_output/Capture.xcresult"; then
 fi
 # Application implementation and resources must remain byte-for-byte identical.
 git diff --exit-code "$capture_commit" -- ios/Hitofude
-python3 - "$capture_output" "$capture_family" <<'PY'
-import hashlib,json,pathlib,struct,sys
-out=pathlib.Path(sys.argv[1]); family=sys.argv[2]
+python3 - "$capture_output" "$capture_family" "$capture_test_status" <<'PY'
+import hashlib,json,pathlib,re,shutil,struct,sys
+out=pathlib.Path(sys.argv[1]); family=sys.argv[2]; passed=sys.argv[3]=='0'
 images=[]
 for file in sorted((out/'screenshots').rglob('*.png')):
     data=file.read_bytes()
     if data[:8]!=b'\x89PNG\r\n\x1a\n': continue
     width,height=struct.unpack('>II',data[16:24])
-    images.append({'file':str(file.relative_to(out)),'width':width,'height':height,'sha256':hashlib.sha256(data).hexdigest()})
+    images.append({'file':str(file.relative_to(out)),'width':width,'height':height,'alpha_channel':data[25] in (4,6),'sha256':hashlib.sha256(data).hexdigest()})
+# Preserve original screenshot bytes while adding human-readable filenames if
+# xcresulttool supplies an attachment manifest on this Xcode version.
+named=[]
+def visit(value):
+    if isinstance(value,dict):
+        exported=value.get('exportedFileName')
+        suggested=value.get('suggestedHumanReadableName',value.get('name',''))
+        match=re.search(r'(0[123]-(?:gameplay|completion|next-puzzle))',suggested)
+        if exported and match:
+            candidates=list((out/'screenshots').rglob(pathlib.Path(exported).name))
+            if candidates and candidates[0].suffix.lower()=='.png':
+                destination=out/'store-candidates'/f'{family}-{match.group(1)}.png'
+                destination.parent.mkdir(exist_ok=True)
+                shutil.copy2(candidates[0],destination)
+                named.append(str(destination.relative_to(out)))
+        for child in value.values(): visit(child)
+    elif isinstance(value,list):
+        for child in value: visit(child)
+for file in (out/'screenshots').rglob('manifest.json'):
+    visit(json.loads(file.read_text()))
 manifest=json.loads((out/'capture-provenance.json').read_text())
-manifest.update({'device_family':family,'device':(out/'device-choice.txt').read_text().splitlines(),'images':images})
+manifest.update({'device_family':family,'device':(out/'device-choice.txt').read_text().splitlines(),'ui_tests_succeeded':passed,'images':images,'readable_copies':named})
 (out/'capture-provenance.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2))
-print(json.dumps({'family':family,'png_count':len(images),'dimensions':sorted({(i['width'],i['height']) for i in images})}))
+summary={'family':family,'ui_tests_succeeded':passed,'png_count':len(images),'dimensions':sorted({(i['width'],i['height']) for i in images}),'readable_copies':named,'alpha_channel_present':any(i['alpha_channel'] for i in images),'visual_review':'not performed by this script'}
+(out/'screenshot-summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+print(json.dumps(summary))
 if len(images)<3: raise SystemExit('Expected at least three actual UI screenshot attachments')
 if any(i['width']<=0 or i['height']<=i['width'] for i in images):
     raise SystemExit('Unexpected portrait screenshot dimensions')
