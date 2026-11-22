@@ -8,5 +8,5 @@
     "fix/rewarded-hints-main-actor": "5086f9a32e062f8f2f138e15190009c52e251acb"
   },
   "existing_pr_count": 15,
-  "note": "App Store Connect and Xcode Cloud were not accessed or modified by this task."
+  "note": "No App Store Connect or Xcode Cloud mutations in this task."
 }

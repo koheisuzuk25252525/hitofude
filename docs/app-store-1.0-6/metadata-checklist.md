@@ -22,7 +22,7 @@
 | サポートURL | https://koheisuzuk25252525.github.io/hitofude/support.html |
 | プライバシーポリシーURL | https://koheisuzuk25252525.github.io/hitofude/privacy.html |
 | マーケティングURL（任意） | https://koheisuzuk25252525.github.io/hitofude/ |
-| スクリーンショット | 1.0（6）の実際の画面を使用。iPhone・iPadに対応しているため、App Store Connectが両端末について要求するサイズを確認します。下の構成案を参照。 |
+| スクリーンショット | 同じソースのReleaseシミュレーターでiPhone・iPad各3枚を撮影済み。[画像のダウンロードと検証結果](native-screenshots.md)を参照。アップロード前の最終目視と、App Store Connectが両端末について要求するサイズの確認は残っています。 |
 | 価格・配信地域 | 所有者の指定が必要。無料／有料や公開対象地域をこちらでは確定していません。 |
 | 年齢区分 | 現在の質問票に事実に沿って回答。広告と、任意の言葉を入力して共有できる手紙機能を含めて判断します。年齢を推測して確定しません。 |
 | アプリのプライバシー | Firebase任意計測・Google広告・Web手紙のデータ処理を、申告と照合します。別途の監査資料参照。 |

@@ -1,0 +1,157 @@
+{
+  "id": 45029850747,
+  "name": "App Store screenshot preparation (1.0 build 6)",
+  "head_sha": "08815e4b8038f4fc0cccd0c42f3be3fe8cfc38cf",
+  "head_branch": "chore/app-store-build6-preparation",
+  "status": "completed",
+  "conclusion": "success",
+  "html_url": "https://github.com/koheisuzuk25252525/hitofude/actions/runs/45029850747",
+  "created_at": "2026-11-22T13:53:28Z",
+  "updated_at": "2026-11-22T14:07:17Z",
+  "application_source": "a04cd41237d4d74b382222aec60ad6c970fda8e2",
+  "jobs": [
+    {
+      "id": 137230814361,
+      "name": "Native screenshots - ipad",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-22T13:53:34Z",
+          "completed_at": "2026-11-22T13:53:35Z"
+        },
+        {
+          "name": "Check out preparation tools",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-22T13:53:35Z",
+          "completed_at": "2026-11-22T13:53:37Z"
+        },
+        {
+          "name": "Check out the unchanged release candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-22T13:53:37Z",
+          "completed_at": "2026-11-22T13:53:38Z"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-22T13:53:38Z",
+          "completed_at": "2026-11-22T13:53:40Z"
+        },
+        {
+          "name": "Capture real native Simulator screens",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-22T13:53:40Z",
+          "completed_at": "2026-11-22T14:06:48Z"
+        },
+        {
+          "name": "Verify application source remains unchanged",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-22T14:06:48Z",
+          "completed_at": "2026-11-22T14:06:48Z"
+        },
+        {
+          "name": "Report capture details",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-22T14:06:48Z",
+          "completed_at": "2026-11-22T14:06:54Z"
+        },
+        {
+          "name": "Save screenshots and evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-11-22T14:06:54Z",
+          "completed_at": "2026-11-22T14:07:07Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-11-22T14:07:07Z",
+          "completed_at": "2026-11-22T14:07:08Z"
+        },
+        {
+          "name": "Post Check out the unchanged release candidate",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-11-22T14:07:08Z",
+          "completed_at": "2026-11-22T14:07:09Z"
+        },
+        {
+          "name": "Post Check out preparation tools",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-11-22T14:07:09Z",
+          "completed_at": "2026-11-22T14:07:10Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-11-22T14:07:10Z",
+          "completed_at": "2026-11-22T14:07:14Z"
+        }
+      ]
+    }
+  ],
+  "capture_annotations": [
+    {
+      "title": "test.log",
+      "message": "\t Executed 1 test, with 0 failures (0 unexpected) in 115.441 (115.443) seconds\n\t Executed 1 test, with 0 failures (0 unexpected) in 115.441 (115.446) seconds\n\t Executed 1 test, with 0 failures (0 unexpected) in 115.441 (115.450) seconds"
+    },
+    {
+      "title": "screenshot-summary.json",
+      "message": "{\n  \"family\": \"ipad\",\n  \"ui_tests_succeeded\": true,\n  \"png_count\": 3,\n  \"dimensions\": [\n    [\n      2064,\n      2752\n    ]\n  ],\n  \"readable_copies\": [\n    \"store-candidates/ipad-03-next-puzzle.png\",\n    \"store-candidates/ipad-02-completion.png\",\n    \"store-candidates/ipad-01-gameplay.png\"\n  ],\n  \"alpha_channel_present\": false,\n  \"visual_review\": \"not performed by this script\"\n}"
+    },
+    {
+      "title": "Native capture phase",
+      "message": "UI test process finished with status 0 (ipad). Exporting actual screenshot attachments."
+    },
+    {
+      "title": "Native capture phase",
+      "message": "Starting real UI taps and screenshot capture (ipad)."
+    },
+    {
+      "title": "Native capture phase",
+      "message": "Dedicated Simulator booted (ipad). Installing version 1.0 build 6."
+    },
+    {
+      "title": "Native capture phase",
+      "message": "Release Simulator build succeeded (ipad). Preparing the dedicated capture device."
+    },
+    {
+      "title": "Native capture phase",
+      "message": "Building the unchanged release application and temporary UI-test target (ipad)."
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 14757523460,
+      "name": "Hitofude-1.0-6-native-ipad",
+      "size_in_bytes": 6164220,
+      "expired": false,
+      "expires_at": "2026-12-22T14:07:05Z"
+    }
+  ]
+}
