@@ -66,8 +66,8 @@ final class RewardedHints: NSObject, ObservableObject, FullScreenContentDelegate
     @Published var error: String?
     @Published private(set) var usesTestAds = true
     private let consent: AdConsentProviding
-    private let isActive: () -> Bool
-    init(consent: AdConsentProviding? = nil, isActive: @escaping () -> Bool = { UIApplication.shared.applicationState == .active }) {
+    private let isActive: @MainActor () -> Bool
+    init(consent: AdConsentProviding? = nil, isActive: @escaping @MainActor () -> Bool = { @MainActor in UIApplication.shared.applicationState == .active }) {
         self.isActive = isActive
         self.consent = consent ?? AdConsent.shared
         super.init()
